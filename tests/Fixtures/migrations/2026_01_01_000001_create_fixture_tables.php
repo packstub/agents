@@ -13,12 +13,18 @@ return new class extends Migration
             $table->string('name');
             $table->string('email')->unique();
             $table->string('password');
+            $table->string('locale')->nullable();
+            $table->boolean('is_admin')->default(false);
+            $table->rememberToken();
             $table->timestamps();
         });
-    }
 
-    public function down(): void
-    {
-        Schema::dropIfExists('users');
+        Schema::create('widgets', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('status')->default('draft');
+            $table->decimal('price', 10, 2)->default(0);
+            $table->timestamps();
+        });
     }
 };
