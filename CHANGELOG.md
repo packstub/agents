@@ -2,7 +2,7 @@
 
 All notable changes to `packstub/agents` are documented here.
 
-## 1.0.0 — Unreleased
+## 1.0.0 — 2026-09-09
 
 The engine of [packstub/filament-agents](https://github.com/packstub/filament-agents) 1.6, extracted into its own package so a plain Laravel app can install it without Filament. Same `Packstub\Agents\` namespace, same `config/packstub-agents.php` and environment variables, same migration file names, same class names: a panel app installs `packstub/filament-agents` ^1.7, which requires this package, and has nothing to run.
 
