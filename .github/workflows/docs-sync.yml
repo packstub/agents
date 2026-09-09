@@ -41,10 +41,10 @@ jobs:
         run: |
           git config user.name "packstub-bot"
           git config user.email "support@packstub.dev"
-          git add -A resources/docs/filament-agents
+          git add -A resources/docs/agents
           if git diff --cached --quiet; then
             echo "Storefront docs already up to date."
           else
-            git commit -m "docs: sync filament-agents from packstub/filament-agents@${GITHUB_SHA::7}"
+            git commit -m "docs: sync agents from packstub/agents@${GITHUB_SHA::7}"
             git push origin main
           fi
