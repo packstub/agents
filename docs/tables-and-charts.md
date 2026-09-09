@@ -1,31 +1,60 @@
 # Tables and charts
 
-An answer that says "here are the 37 orders waiting for a call" and then renders the real Orders table under itself is more useful than one that types 37 rows. That is what `show-table` does, and it works from your resources.
+A model that searches orders and a model that shows orders should mean the same thing by "waiting for a call". The `AgentResource` contract gives each kind of record one name, one summary and one filter vocabulary, and `AgentResources` shares it with every tool that names the same key.
 
 ## AgentResource
 
-A Filament resource opts in by implementing the `AgentResource` contract. The `InteractsWithAgent` trait gives it defaults derived from the resource itself:
+A plain class implements `Packstub\Agents\Contracts\AgentResource` and is registered with `Agents::useResources()`:
 
 ```php
-use Packstub\Agents\Concerns\InteractsWithAgent;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Packstub\Agents\Contracts\AgentResource;
+use Packstub\Agents\Filters\Filter;
 
-class OrderResource extends Resource implements AgentResource
+class Orders implements AgentResource
 {
-    use InteractsWithAgent;
+    public static function agentKey(): string
+    {
+        return 'orders';
+    }
+
+    public static function agentSummary(Model $record, bool $full = false): array
+    {
+        return [
+            'number' => $record->number,
+            'status' => $record->status->value,
+            'total' => (float) $record->total,
+            'url' => route('orders.show', $record),
+        ];
+    }
+
+    public static function agentContextLabel(Model $record): string
+    {
+        return 'Order '.$record->number;
+    }
+
+    public static function agentFilters(): array
+    {
+        return [ /* see below */ ];
+    }
 }
 ```
 
-| Method | Default from the trait | Override when |
-| --- | --- | --- |
-| `agentKey()` | the resource slug with underscores (`orders`) | you want a different name in the model's vocabulary |
-| `agentSummary(Model $record, bool $full = false)` | `id`, the record title and the record's panel url | the model should see domain fields (number, status, total); `$full` is for one record, compact for lists |
-| `agentContextLabel(Model $record)` | the model label plus the record title ("Order RO-00012") | the label should read differently |
-| `agentFilters()` | none | you want `show-table` and your search tools to accept filters |
+```php
+Agents::useResources([Orders::class, Customers::class]);
+```
 
-`agentRecordUrl()` returns the view page, else the edit page, else the list, and is what the summary's `url` should carry so answers can link to records.
+| Method | Purpose |
+| --- | --- |
+| `agentKey()` | the name the model uses for this kind of record (`orders`) |
+| `agentSummary(Model $record, bool $full = false)` | how a record looks to the model: compact for lists, `$full` for one record, always with a `url` so answers can link to it |
+| `agentContextLabel(Model $record)` | "The person opened this chat from …" ("Order RO-00012"), see [Page context](#page-context) |
+| `agentFilters()` | the vocabulary the model may pass to your search tools |
 
-The package discovers every resource of the panel that implements the contract. Pass an explicit list with `AgentsPlugin::make()->resources([...])` when you want fewer, or a different order.
+`AgentResources::all()` lists the registered classes by key, `find($key)` returns one, `forModel(Order::class)` finds the class for a model when the class exposes a static `getModel()`.
+
+**In a Filament panel**, a resource implements the same contract with the `InteractsWithAgent` trait, which derives the key, the summary, the label and the record url from the resource itself, and the plugin discovers every resource of the panel that implements it; its `show-table` tool then renders the resource's own table under an answer. See [Filament Agents](https://packstub.dev/docs/filament-agents/tables-and-charts).
 
 ## Filters
 
@@ -69,20 +98,8 @@ The same vocabulary serves your search tools through `AgentResources`:
 ```php
 $filters = AgentResources::normalizeFilters('orders', (array) $request->get('filters'));
 $query = AgentResources::apply('orders', Order::query(), $filters);
-$schema = AgentResources::filterSchema($schema, 'orders');   // for the tool's schema()
+$schema = AgentResources::filterSchema($schema, 'orders');   // for the tool's schema(); without a key, the union of every table's vocabulary
 ```
-
-## show-table
-
-Add `Packstub\Agents\Mcp\Tools\ShowTable` to the tool list. Its description and schema are generated from the resources: the `table` argument is an enum of the agent keys, `filters` is the union of every table's vocabulary (each key described per table), and `title` is an optional caption.
-
-When the model calls it, the tool checks `canViewAny()` on the resource, normalizes the filters, counts the rows and returns the total plus a note telling the model that an interactive table is rendered under the answer. The chat then embeds the resource's own `table()`, with the resource's query narrowed by the filters as the base query, so the person gets the same columns, search, sorting, pagination and row actions their role allows on the list page.
-
-The generic answering rules tell the model to use `show-table` whenever someone wants to see or work through records ("show me", "list", more than a handful of rows) and to use the search tools when it needs the data itself.
-
-In the chat, the answer is one or two sentences and the table does the rest:
-
-![A question about pending orders answered with a short summary and the live Orders table under it, filtered to the three pending rows, with Confirm and Edit actions](https://raw.githubusercontent.com/packstub/filament-agents/main/docs/images/chat-table.png)
 
 ## Charts
 
@@ -95,14 +112,10 @@ In the chat, the answer is one or two sentences and the table does the rest:
 | `labels` | 1 to 60 strings |
 | `datasets` | 1 to 8 series of `{label, data}`; every series has one value per label |
 
-The rules tell the model to pass only values that came from a tool result, never estimates. For anything over time, prefer a reporting tool of your own that returns a `chart` key next to its data (see [Tools](tools.md)); the chat renders both the same way.
-
-A chart from the model's own `draw-chart` call, with the numbers it took from `search-orders`:
-
-![A question about order value over four weeks answered with a sentence and a bar chart, Order value by week](https://raw.githubusercontent.com/packstub/filament-agents/main/docs/images/chat-chart.png)
+The rules tell the model to pass only values that came from a tool result, never estimates. For anything over time, prefer a reporting tool of your own that returns a `chart` key next to its data (see [Tools](tools.md)); a chat surface renders both the same way, and an MCP client or your own front end gets the same `chart` structure in the tool result.
 
 ## Page context
 
-The topbar "Ask …" button knows which page it is on. On a record page of a resource that implements `AgentResource`, it opens the chat with a `context` of `orders/12`, the chat shows "About Order RO-00012", and the dynamic prompt block carries the record's compact summary: "The person opened this chat from Order RO-00012. 'This one' / 'this record' means that record: {…}". The model calls a tool for anything beyond the summary.
+A conversation can start from a record: pass a `context` of `orders/12` when you start it (the `$context` argument of `AgentTurns::enqueue()`), and the dynamic prompt block carries the record's compact summary: "The person opened this chat from Order RO-00012. 'This one' / 'this record' means that record: {…}". The model calls a tool for anything beyond the summary.
 
-`PageContext::fromRequest()` resolves the reference from the current route (a bound model, or a resource route with a record parameter); `PageContext::resolve('orders/12')` turns it back into the label and summary. Hide the button on pages that have their own composer with `AgentsPlugin::make()->hideAskButtonOn(['*.pages.dashboard'])`.
+`PageContext::resolve('orders/12')` turns a reference into the label and summary; `PageContext::fromRequest()` resolves one from the current route when a bound model or a record parameter names a registered resource. A resource class used for page context exposes the statics `resolveRecordRouteBinding($id)` (a Filament resource has it; a plain class returns `Order::find($id)`) and, for `fromRequest()` on routes without a bound model, `getSlug()`.

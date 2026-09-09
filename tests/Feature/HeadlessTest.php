@@ -1,6 +1,5 @@
 <?php
 
-use Filament\FilamentServiceProvider;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
@@ -24,7 +23,7 @@ use Packstub\Agents\Tests\Fixtures\Models\Widget;
 use Packstub\Agents\Tests\Fixtures\Tools\RetireWidget;
 use Packstub\Agents\Tests\Fixtures\Tools\WhoAmI;
 use Packstub\Agents\Tests\Fixtures\WidgetAgent;
-use Packstub\Agents\Tests\HeadlessTestCase;
+use Packstub\Agents\Tests\TestCase;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\getJson;
@@ -37,8 +36,7 @@ beforeEach(function () {
 });
 
 it('boots without Filament, on the Laravel context', function () {
-    expect($this)->toBeInstanceOf(HeadlessTestCase::class)
-        ->and(app()->providerIsLoaded(FilamentServiceProvider::class))->toBeFalse()
+    expect($this)->toBeInstanceOf(TestCase::class)
         ->and(Installed::filament())->toBeFalse()
         ->and(Agents::context())->toBeInstanceOf(LaravelContext::class)
         ->and(Agents::inPanel())->toBeFalse()

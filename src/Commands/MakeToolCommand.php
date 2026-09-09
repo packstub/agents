@@ -34,7 +34,7 @@ class MakeToolCommand extends Command
         ));
 
         $this->components->info("Tool created: {$path}");
-        $this->line('Add it to your server\'s $tools (or '.(Installed::filament() ? 'AgentsPlugin::make()->tools([...])' : 'Agents::useTools([...])').') and it is served to the chat and to MCP clients.');
+        $this->line('Add it to your server\'s $tools (or '.(Installed::filamentAgents() ? 'AgentsPlugin::make()->tools([...])' : 'Agents::useTools([...])').') and it is served to the chat and to MCP clients.');
 
         return self::SUCCESS;
     }

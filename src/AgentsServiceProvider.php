@@ -2,21 +2,14 @@
 
 namespace Packstub\Agents;
 
-use Filament\Facades\Filament;
-use Filament\Support\Assets\AlpineComponent;
-use Filament\Support\Assets\Css;
-use Filament\Support\Facades\FilamentAsset;
-use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
 use Laravel\Ai\Contracts\ConversationStore;
 use Laravel\Mcp\Facades\Mcp;
-use Livewire\Livewire;
 use Packstub\Agents\Commands\MakeAgentCommand;
 use Packstub\Agents\Commands\MakeToolCommand;
 use Packstub\Agents\Contracts\AgentContext;
 use Packstub\Agents\Http\Controllers\TurnController;
 use Packstub\Agents\Http\Middleware\AcceptJson;
-use Packstub\Agents\Livewire\AgentTable;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\Context\LaravelContext;
 use Packstub\Agents\Support\Installed;
@@ -31,7 +24,6 @@ class AgentsServiceProvider extends PackageServiceProvider
         $package
             ->name('packstub-agents')
             ->hasConfigFile()
-            ->hasViews('packstub-agents')
             ->discoversMigrations()
             // Auto-run by default; database-per-tenant apps set run_migrations=false, publish and split them.
             ->runsMigrations((bool) config('packstub-agents.run_migrations', true))
@@ -45,7 +37,7 @@ class AgentsServiceProvider extends PackageServiceProvider
                     ->endWith(function (InstallCommand $command): void {
                         $command->call('packstub-agents:agent');
 
-                        if (Installed::filament()) {
+                        if (Installed::filamentAgents()) {
                             $command->info('Next: register the plugin in your panel provider —');
                             $command->line('    ->plugin(\Packstub\Agents\AgentsPlugin::make()->name(\'Ask …\')->agent(\App\Ai\Agents\Assistant::class)->tools([...]))');
                             $command->line('add a provider key to .env (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY or XAI_API_KEY, with AGENT_PROVIDER), run `php artisan filament:assets`,');
@@ -54,6 +46,10 @@ class AgentsServiceProvider extends PackageServiceProvider
                             $command->info('Next: register the agent and the tools in a service provider —');
                             $command->line('    Agents::useAgent(\App\Ai\Agents\Assistant::class); Agents::useTools([...]);');
                             $command->line('and add a provider key to .env (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY or XAI_API_KEY, with AGENT_PROVIDER).');
+
+                            if (Installed::filament()) {
+                                $command->line('For the chat and the operator pages in your panel: composer require packstub/filament-agents.');
+                            }
                         }
                     });
             });
@@ -80,26 +76,10 @@ class AgentsServiceProvider extends PackageServiceProvider
 
         $this->loadJsonTranslationsFrom(__DIR__.'/../resources/lang');
 
-        Blade::anonymousComponentPath(__DIR__.'/../resources/views/components', 'packstub-agents');
-
-        // The chat's stylesheet and Alpine component, and the embedded resource table, exist only in a panel.
-        if (Installed::filament()) {
-            FilamentAsset::register([
-                Css::make('packstub-agents', __DIR__.'/../resources/css/agents.css'),
-                AlpineComponent::make('agent-chat', __DIR__.'/../resources/js/agent-chat.js'),
-            ], 'packstub/filament-agents');
-        }
-
-        // Livewire and the panels may boot after this provider; the registrations wait for the whole app.
+        // The routes wait for the whole app: what the app registers through the facade in its own boot(), and — with
+        // packstub/filament-agents — the panels, whose plugin binds the context and mirrors the server class into config
+        // before any route or job reads either (its provider resolves them in an earlier booted callback).
         $this->app->booted(function (): void {
-            if (Installed::filament()) {
-                Livewire::component('packstub-agents.agent-table', AgentTable::class);
-
-                // Resolving the panels runs every plugin's register(): the context becomes the panel's and the server
-                // class is mirrored into config, before any route or job reads either. Without Filament, config is the source.
-                Filament::getPanels();
-            }
-
             $this->registerMcpRoute();
             $this->registerTurnRoute();
         });
@@ -107,7 +87,7 @@ class AgentsServiceProvider extends PackageServiceProvider
 
     /**
      * POST {mcp.path} with "Authorization: Bearer <agent token>". Registered
-     * once every panel (and so the plugin's server choice) is known.
+     * once the app (and a panel's plugin) named the server.
      */
     protected function registerMcpRoute(): void
     {

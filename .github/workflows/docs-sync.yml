@@ -31,10 +31,10 @@ jobs:
       - name: Clone store repo
         run: git clone --depth 1 git@github.com:packstub/store.git /tmp/store
 
-      - name: Sync docs/ into resources/docs/filament-agents/1.x/
+      - name: Sync docs/ into resources/docs/agents/1.x/
         run: |
-          mkdir -p /tmp/store/resources/docs/filament-agents/1.x
-          rsync -a --delete docs/ /tmp/store/resources/docs/filament-agents/1.x/
+          mkdir -p /tmp/store/resources/docs/agents/1.x
+          rsync -a --delete docs/ /tmp/store/resources/docs/agents/1.x/
 
       - name: Commit and push if changed
         working-directory: /tmp/store

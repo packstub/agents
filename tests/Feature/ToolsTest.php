@@ -6,21 +6,30 @@ use Packstub\Agents\Ai\ApprovableTool;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Mcp\AgentTool;
 use Packstub\Agents\Mcp\Tools\DrawChart;
-use Packstub\Agents\Mcp\Tools\ShowTable;
 use Packstub\Agents\Tests\Fixtures\Abilities;
 use Packstub\Agents\Tests\Fixtures\Models\Widget;
 use Packstub\Agents\Tests\Fixtures\Tools\ListWidgets;
 use Packstub\Agents\Tests\Fixtures\Tools\RenameWidget;
 use Packstub\Agents\Tests\Fixtures\WidgetAgent;
+use Packstub\Agents\Tests\Fixtures\WidgetResource;
 use Packstub\Agents\Tests\Fixtures\WidgetServer;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\postJson;
 
+// What the app's service provider registers: the agent, the server with the tool list, the resources, the abilities.
+beforeEach(function () {
+    Agents::useAgent(WidgetAgent::class);
+    Agents::useServer(WidgetServer::class);
+    Agents::useResources([WidgetResource::class]);
+    Agents::authorizeUsing(fn (string $ability) => Abilities::allows($ability));
+    Agents::roleLabelUsing(fn () => Abilities::$role);
+});
+
 it('reads the tool list from the server class and wraps writes for approval', function () {
     actingAs($this->user());
 
-    expect(Agents::toolClasses())->toBe([ListWidgets::class, RenameWidget::class, ShowTable::class, DrawChart::class])
+    expect(Agents::toolClasses())->toBe([ListWidgets::class, RenameWidget::class, DrawChart::class])
         ->and(Agents::agentClass())->toBe(WidgetAgent::class)
         ->and(Agents::name())->toBe('Ask Widgets');
 
@@ -28,8 +37,8 @@ it('reads the tool list from the server class and wraps writes for approval', fu
 
     expect($tools->get('list-widgets'))->toBeInstanceOf(McpServerTool::class)->not->toBeInstanceOf(ApprovableTool::class)
         ->and($tools->get('rename-widget'))->toBeInstanceOf(ApprovableTool::class)
-        ->and($tools->get('show-table'))->not->toBeInstanceOf(ApprovableTool::class)
-        ->and($tools)->toHaveCount(4);
+        ->and($tools->get('draw-chart'))->not->toBeInstanceOf(ApprovableTool::class)
+        ->and($tools)->toHaveCount(3);
 });
 
 it('gives each person only the tools their abilities allow, in the list and on a direct call', function () {
@@ -45,7 +54,7 @@ it('gives each person only the tools their abilities allow, in the list and on a
     expect($direct->isError())->toBeTrue()->and((string) $direct->content())->toContain('Your role (Viewer) is not allowed');
 
     $names = collect((new WidgetAgent)->tools())->map(fn ($t) => $t->name())->all();
-    expect($names)->toContain('list-widgets', 'show-table')->not->toContain('rename-widget');
+    expect($names)->toContain('list-widgets', 'draw-chart')->not->toContain('rename-widget');
 
     Abilities::$role = null;
     $direct = app(RenameWidget::class)->handle(new Request(['id' => 1, 'name' => 'X']));
@@ -76,7 +85,7 @@ it('serves MCP over HTTP with a read or write token', function () {
         ->assertOk()
         ->assertJsonPath('result.tools.0.name', 'list-widgets')
         ->json('result.tools.*.name');
-    expect($listed)->toBe(['list-widgets', 'show-table', 'draw-chart']);
+    expect($listed)->toBe(['list-widgets', 'draw-chart']);
 
     postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => ['name' => 'list-widgets', 'arguments' => ['limit' => 1]]], $headers($read))
         ->assertOk()
@@ -150,8 +159,10 @@ it('builds the prompt from the persona, the domain, the generic rules and the li
     $dynamic = $agent->dynamicInstructions();
 
     expect($static)->toStartWith('You are Ask Widgets')
-        ->toContain('## What the workspace is', 'draft, live, retired', '## How to work', 'show-table', '## How to answer')
-        ->and($dynamic)->toContain('## Now', 'Grace Hopper', 'role Owner', 'Answer language: English', 'Widgets in the catalogue: 3.')
+        ->toContain('## What the workspace is', 'draft, live, retired', '## How to work', 'draw-chart', '## How to answer')
+        // The rule about live tables is written only when show-table is served (a panel with agent resources).
+        ->not->toContain('show-table')
+        ->and($dynamic)->toContain('## Now', 'Grace Hopper', 'role Owner', 'Answer language: English', 'Widgets in the catalogue: 2.')
         // The system prompt is the static block alone, byte-identical between turns; the dynamic block goes with the question.
         ->and($agent->instructions())->toBe($static)
         ->and($agent->maxSteps())->toBe(7)

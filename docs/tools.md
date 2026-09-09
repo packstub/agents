@@ -1,6 +1,6 @@
 # Tools
 
-Every capability the assistant has is one `laravel/mcp` tool class. The MCP server lists it to external agents; the in-panel chat calls the very same class through laravel/ai's `McpServerTool` bridge. There is one list, and it lives on your server class.
+Every capability the assistant has is one `laravel/mcp` tool class. The MCP server lists it to external agents; your agent calls the very same class through laravel/ai's `McpServerTool` bridge. There is one list, and it lives on your server class.
 
 ## Scaffold
 
@@ -39,7 +39,7 @@ class SearchOrders extends AgentTool
             'rows' => $query->limit($this->limit($request))->get()->map(fn (Order $order) => [
                 'number' => $order->number,
                 'status' => $order->status->value,
-                'url' => OrderResource::getUrl('view', ['record' => $order]),
+                'url' => route('orders.show', $order),
             ])->all(),
         ];
     }
@@ -54,7 +54,7 @@ class SearchOrders extends AgentTool
 }
 ```
 
-- `$ability` is the same string that gates the panel resource or action the tool mirrors. The tool is only listed, and only runs, when the current person may that ability (through the `authorizeUsing()` callback, or the `Gate`).
+- `$ability` is the same string that gates the action the tool mirrors in your app. The tool is only listed, and only runs, when the current person may that ability (through the `authorizeUsing()` callback, or the `Gate`).
 - `run()` returns the data the model gets to see; it is encoded as JSON. Keep rows compact and always include a `url` so the answer can link to the record.
 - `schema()` describes the arguments with laravel's `JsonSchema` builder. Use `#[Description]` for what the tool does, when to use it and what it returns; the model reads it.
 - `limit()` clamps a requested page size (default 20, max 50).
@@ -65,7 +65,7 @@ class SearchOrders extends AgentTool
 
 | | Read-only tool | Write tool |
 | --- | --- | --- |
-| In the chat | runs directly | wrapped as an `ApprovableTool`: the person sees the tool and its arguments and approves or rejects it before it runs |
+| For the agent | runs directly | wrapped as an `ApprovableTool`: laravel/ai pauses the turn on the tool and its arguments until the person approves or rejects it |
 | Over MCP with a `read` token | runs | refused ("This access token is read-only.") |
 | Over MCP with a `write` token | runs | runs directly with the token holder's role |
 
@@ -93,7 +93,6 @@ namespace App\Mcp\Servers;
 use App\Mcp\Tools;
 use Packstub\Agents\Mcp\AgentServer;
 use Packstub\Agents\Mcp\Tools\DrawChart;
-use Packstub\Agents\Mcp\Tools\ShowTable;
 
 class AcmeServer extends AgentServer
 {
@@ -108,7 +107,6 @@ class AcmeServer extends AgentServer
     protected array $tools = [
         Tools\WorkspaceOverview::class,
         Tools\SearchOrders::class,
-        ShowTable::class,
         DrawChart::class,
         Tools\ConfirmOrder::class,
         Tools\ShipOrder::class,
@@ -116,15 +114,17 @@ class AcmeServer extends AgentServer
 }
 ```
 
-Register it with `AgentsPlugin::make()->server(AcmeServer::class)`. The chat agent reads the same `$tools`, in the same order, so put the reads first and the overview tool at the top: the generic rules tell the assistant to start broad questions with the overview tool when there is one.
+Register it with `Agents::useServer(AcmeServer::class)` in a service provider (or `mcp.server` in config). The agent reads the same `$tools`, in the same order, so put the reads first and the overview tool at the top: the generic rules tell the assistant to start broad questions with the overview tool when there is one.
 
-`ShowTable` and `DrawChart` are the package's own tools, see [Tables and charts](tables-and-charts.md). Include them when you want live tables and charts in answers.
+`DrawChart` is the package's own tool, see [Tables and charts](tables-and-charts.md). Include it when you want charts in answers.
 
-A chat-only app may skip the server class and pass the list to the plugin: `AgentsPlugin::make()->tools([...])`. The package's default `AgentServer` then serves that list under the assistant's name.
+An app may skip the server class and pass the list to the facade: `Agents::useTools([...])`. The package's default `AgentServer` then serves that list under the assistant's name.
 
-## Sharing filters with the panel
+**In a Filament panel**, `AgentsPlugin::make()->server()` or `->tools()` do the same, and the plugin's `ShowTable` tool renders a resource's own table under an answer; see [Filament Agents](https://packstub.dev/docs/filament-agents/tools).
 
-When a resource implements `AgentResource` (see [Tables and charts](tables-and-charts.md)), its filter vocabulary is available to your search tools too, so "orders waiting for a phone call" means the same thing whether the model searches or shows a table:
+## Sharing filters between tools
+
+When a class implements `AgentResource` (see [Tables and charts](tables-and-charts.md)), its filter vocabulary is available to every search tool that names the same key, so "orders waiting for a phone call" means the same thing in each of them:
 
 ```php
 protected function run(Request $request): array
@@ -145,7 +145,7 @@ public function schema(JsonSchema $schema): array
 
 ## Tools that return a chart
 
-Any tool may return a `chart` key next to its data, and the chat renders it under the answer:
+Any tool may return a `chart` key next to its data, and a chat surface renders it under the answer:
 
 ```php
 return [
@@ -159,4 +159,4 @@ return [
 ];
 ```
 
-`type` is one of `bar`, `line`, `pie` or `doughnut`. Prefer this over `draw-chart` for anything over time: the numbers come straight from the query.
+`type` is one of `bar`, `line`, `pie` or `doughnut`. Prefer this over `draw-chart` for anything over time: the numbers come straight from the query. The `chart` key is part of the tool result either way, so an MCP client or your own front end can draw it too.

@@ -9,7 +9,7 @@ use Packstub\Agents\Mcp\AgentTool;
 use Packstub\Agents\Tests\Fixtures\Models\Widget;
 use RuntimeException;
 
-/** A write tool with no panel behind it (RenameWidget summarises through a Filament resource). */
+/** A write tool with no resource behind it (RenameWidget summarises through WidgetResource). */
 #[Description('Retire a widget.')]
 class RetireWidget extends AgentTool
 {

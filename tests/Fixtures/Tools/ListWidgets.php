@@ -8,8 +8,8 @@ use Laravel\Mcp\Server\Attributes\Description;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Packstub\Agents\Mcp\AgentTool;
 use Packstub\Agents\Support\AgentResources;
-use Packstub\Agents\Tests\Fixtures\Filament\Resources\Widgets\WidgetResource;
 use Packstub\Agents\Tests\Fixtures\Models\Widget;
+use Packstub\Agents\Tests\Fixtures\WidgetResource;
 
 #[IsReadOnly]
 #[Description('Find widgets by name, status and price.')]

@@ -1,33 +1,30 @@
 # Testing
 
-Never call a provider from tests. laravel/ai fakes the model, laravel/mcp drives tools directly, and the HTTP endpoint is a normal route.
+Never call a provider from tests. laravel/ai fakes the model, laravel/mcp drives tools directly, and the HTTP endpoints are normal routes.
 
 ## Faking the model
 
 ```php
 use App\Ai\Agents\Assistant;
-use Packstub\Agents\Filament\Pages\Chat;
+use Packstub\Agents\Support\AgentConversationStore;
+use Packstub\Agents\Support\AgentTurns;
 
-use function Pest\Livewire\livewire;
-
-it('answers in the chat', function () {
+it('answers a question', function () {
     actingAs($user);
     Assistant::fake(['Two orders are waiting for a call.']);
 
-    livewire(Chat::class)
-        ->set('prompt', 'What needs attention?')
-        ->call('send');
+    $conversation = app(AgentConversationStore::class)->startConversation($user, 'What needs attention?');
+    $turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => 'What needs attention?'], null, 'auto', null);
 
-    $conversation = Conversation::query()->where('participant_id', $user->id)->sole();
-
-    livewire(Chat::class, ['conversation' => $conversation->id])
-        ->assertSee('Two orders are waiting for a call');
+    expect($turn->fresh()->status)->toBe(AgentTurn::DONE)
+        ->and(ConversationMessage::query()->where('conversation_id', $conversation)->latest('id')->value('content'))
+        ->toBe('Two orders are waiting for a call.');
 });
 ```
 
 `Assistant::fake([...])` comes from laravel/ai's `Promptable` trait: each entry is one answer, in order.
 
-A turn runs in a queued job. On the `sync` queue driver (the default in a test environment), or with `chat.driver` set to `sync`, it runs inside `call('send')`, so the answer is stored when the call returns, as above. To test what happens while the job waits — the page attaching to a running turn, Stop, the follow-ups waiting per conversation — fake the queue and run the pushed job yourself:
+A turn runs in a queued job. On the `sync` queue driver (the default in a test environment), or with `chat.driver` set to `sync`, it runs inside `enqueue()`, so the answer is stored when the call returns, as above. To test what happens while the job waits — the poll endpoint attaching to a running turn, Stop, the follow-ups waiting per conversation — fake the queue and run the pushed job yourself:
 
 ```php
 use Illuminate\Support\Facades\Queue;
@@ -35,13 +32,15 @@ use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Support\AgentTurns;
 
 Queue::fake();
-livewire(Chat::class)->call('send', 'What needs attention?');
+$turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => 'What needs attention?'], null, 'auto', null);
 
 Assistant::fake(['Two orders are waiting for a call.']);
 Queue::pushed(RunAgentTurn::class)->first()->handle(app(AgentTurns::class));
 ```
 
-`Queue::pushed(...)->first()` is the job the chat dispatched; `handle()` runs it as a worker would, with the panel, workspace, person and locale of the request restored.
+`Queue::pushed(...)->first()` is the job that was dispatched; `handle()` runs it as a worker would, with the workspace, person, guard and locale of the request restored.
+
+**In a Filament panel**, [Filament Agents](https://packstub.dev/docs/filament-agents/testing) drives the same turns through its chat page with Livewire's `livewire(Chat::class)`.
 
 ## Driving a tool
 
@@ -72,7 +71,7 @@ it('refuses a tool the role does not allow', function () {
 
 `Server::tool()` is laravel/mcp's testing helper: it runs the tool through the server, so the ability check applies exactly as in production.
 
-## The chat's tool list
+## The agent's tool list
 
 ```php
 use Laravel\Ai\Tools\McpServerTool;
@@ -108,7 +107,7 @@ it('serves MCP with a read or write token', function () {
 
     postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => ['name' => 'confirm-order', 'arguments' => ['id' => 1]]], ['Authorization' => 'Bearer '.$read] + $mcp)
         ->assertOk()
-        ->assertJsonPath('result.isError', true);   // a read token cannot write
+        ->assertJsonPath('error.message', 'Tool [confirm-order] not found.');   // a read token does not list write tools
 
     auth()->forgetGuards();   // each MCP request is its own request in production; the test kernel keeps the resolved guard
 
@@ -141,4 +140,4 @@ it('stops a turn when the daily limit is spent', function () {
 composer test
 ```
 
-The suite runs on Orchestra Testbench with an in-memory SQLite database and a fixture panel that has a `Widget` resource, two tools, an agent and a server, and covers tools and authorization, the chat, tables and charts, tokens and limits.
+The suite runs on Orchestra Testbench with an in-memory SQLite database and no Filament: a `Widget` model with a plain `AgentResource` class, four tools, an agent and a server registered through the facade, and covers tools and authorization, tokens and scopes, queued turns on their guard and workspace, the poll endpoint, budgets and limits.

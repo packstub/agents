@@ -29,7 +29,7 @@ class MakeAgentCommand extends Command
         $files->put($path, str_replace(['{{ class }}', '{{ name }}'], [$class, config('packstub-agents.name', 'Assistant')], $files->get(__DIR__.'/../../stubs/agent.stub')));
 
         $this->components->info("Agent created: {$path}");
-        $this->line(Installed::filament()
+        $this->line(Installed::filamentAgents()
             ? 'Register it: AgentsPlugin::make()->agent(\App\Ai\Agents\\'.$class.'::class)'
             : 'Register it in a service provider: Agents::useAgent(\App\Ai\Agents\\'.$class.'::class)');
 

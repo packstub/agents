@@ -15,12 +15,11 @@ use Packstub\Agents\Tests\Fixtures\Models\User;
 use Packstub\Agents\Tests\Fixtures\Models\Widget;
 
 /**
- * The package in a plain Laravel app: no Filament providers, no Livewire, no
- * panel — Sanctum, laravel/ai, laravel/mcp and the package alone. Filament's
- * classes are still on the autoloader (it is a dev dependency), which is why
- * the package checks for its provider, not its classes.
+ * The package in a plain Laravel app: Sanctum, laravel/ai, laravel/mcp and
+ * the package alone — no Filament, no Livewire, no panel. What a panel adds
+ * (and the panel test suite) lives in packstub/filament-agents.
  */
-abstract class HeadlessTestCase extends Orchestra
+abstract class TestCase extends Orchestra
 {
     use RefreshDatabase;
 
@@ -61,6 +60,7 @@ abstract class HeadlessTestCase extends Orchestra
             'anthropic' => [
                 'auto' => ['label' => 'Auto', 'model' => 'test-claude-auto', 'effort' => 'medium'],
                 'fast' => ['label' => 'Fast', 'model' => 'test-claude-fast', 'effort' => null],
+                'deep' => ['label' => 'Deep', 'model' => 'test-claude-deep', 'effort' => 'xhigh'],
             ],
         ]);
         $app['config']->set('queue.default', 'sync');

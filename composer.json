@@ -1,19 +1,16 @@
 {
-    "name": "packstub/filament-agents",
-    "description": "An in-panel AI assistant and an MCP server for Filament v5 panels, built on laravel/ai and laravel/mcp: one tool list for both, the panel's own authorization, approve-in-chat writes, live tables and charts in answers, per-workspace budgets and an operator limits page.",
+    "name": "packstub/agents",
+    "description": "AI agents for Laravel: an agent engine and an MCP server sharing one tool list, built on laravel/ai and laravel/mcp — tools gated by the app's own abilities, read or write tokens for Claude Code, Claude Desktop and Cursor, queued turns, budgets and limits per workspace and per user. packstub/filament-agents adds the chat and the operator pages to a Filament panel.",
     "keywords": [
-        "filament",
-        "filament-plugin",
-        "filament-panel",
-        "filament-v5",
+        "laravel",
         "ai",
         "agents",
         "assistant",
-        "chat",
         "mcp",
         "mcp-server",
         "laravel-ai",
-        "laravel"
+        "laravel-mcp",
+        "chat"
     ],
     "type": "library",
     "license": "MIT",
@@ -39,13 +36,11 @@
         "spatie/laravel-package-tools": "^1.93"
     },
     "require-dev": {
-        "filament/filament": "^5.0",
         "orchestra/testbench": "^11.2",
         "phpunit/phpunit": "^13.3",
         "laravel/pint": "^1.13",
         "pestphp/pest": "^5.1",
         "pestphp/pest-plugin-laravel": "^5.0",
-        "pestphp/pest-plugin-livewire": "^5.0",
         "orchestra/pest-plugin-testbench": "^5.0"
     },
     "autoload": {
@@ -79,15 +74,15 @@
     },
     "minimum-stability": "stable",
     "prefer-stable": true,
-    "homepage": "https://github.com/packstub/filament-agents",
+    "homepage": "https://github.com/packstub/agents",
     "support": {
-        "issues": "https://github.com/packstub/filament-agents/issues",
-        "source": "https://github.com/packstub/filament-agents",
-        "docs": "https://packstub.dev/docs/filament-agents"
+        "issues": "https://github.com/packstub/agents/issues",
+        "source": "https://github.com/packstub/agents",
+        "docs": "https://packstub.dev/docs/agents"
     },
     "suggest": {
-        "filament/filament": "The chat pages, the Agent access page, the operator's limits and turns pages, live tables in answers (^5.0). Without it the package serves the MCP endpoint, the turn job, budgets and limits in a plain Laravel app.",
-        "packstub/filament-tenancy": "Database-per-tenant panels: the MCP endpoint and the chat follow the workspace automatically."
+        "packstub/filament-agents": "The in-panel chat, the Agent access page (MCP tokens), the operator's limits and turns pages, and live resource tables in answers, for a Filament v5 panel.",
+        "packstub/filament-tenancy": "Database-per-tenant panels: the MCP endpoint and the turns follow the workspace automatically."
     },
     "config": {
         "allow-plugins": {

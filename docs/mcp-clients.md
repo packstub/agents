@@ -1,30 +1,30 @@
 # MCP clients
 
-The same tools the chat uses are served over HTTP as an MCP server, so Claude Code, Claude Desktop, Cursor or any client that speaks the Model Context Protocol can work inside the panel as the person who minted the token, in their workspace, with their role.
+The same tools your agent uses are served over HTTP as an MCP server, so Claude Code, Claude Desktop, Cursor or any client that speaks the Model Context Protocol can work inside your app as the person who minted the token, in their workspace, with their role.
 
-## The Agent access page
+## Tokens
 
-`AgentsPlugin` registers an **Agent access** page (`/agent-access`) whenever `agentAccess()` is on (the default). Gate it with an ability and put it in a navigation group:
+A token is a Sanctum personal access token whose abilities say what the client may do:
 
 ```php
-AgentsPlugin::make()->agentAccess(ability: 'setup.view', group: fn () => __('Setup'))
+// Read-only, for a reporting agent.
+$token = $user->createToken('laptop', ['read'])->plainTextToken;
+
+// Read and write, limited to two tools and a month.
+$token = $user->createToken('queue', ['read', 'write', 'tool:search-orders', 'tool:confirm-order'], now()->addDays(30))->plainTextToken;
+
+// Bound to a workspace, for an mcp/{tenant} path.
+$token = $user->createToken('acme', ['read', 'tenant:'.$team->slug])->plainTextToken;
 ```
 
-![The Agent access page listing two tokens: one scoped to three tools and expiring, one read-only](https://raw.githubusercontent.com/packstub/filament-agents/main/docs/images/agent-access.png)
+- **`read`** looks things up and runs reports; **`write`** changes data through the tools, still limited by the person's role.
+- An **expiry** is Sanctum's `expires_at`, so an expired token is refused by `auth:sanctum` like any other.
+- **`tool:{name}`** abilities limit the token to exactly those tools: the others are not listed and are refused by name. Without any, the token has every tool the role allows.
+- **`tenant:{slug}`** binds the token to one workspace's URL, see [Tenancy](tenancy.md).
 
-The page mints Sanctum personal access tokens for the signed-in person:
+A token can only narrow what the role allows, never widen it: the role is checked again on every call, so a tool the role loses later is refused even when the token names it. Offer a person only the tools their role allows when you build a token form — `Agents::toolClasses()` and each tool's `shouldRegister()` tell you which — and show the plain token once. Tokens are regular Sanctum tokens, so `$user->tokens()`, `expires_at` and Sanctum's pruning work as usual.
 
-- a label ("Claude Code on my laptop");
-- abilities: **Read** (look things up, reports) and **Write** (change data through the tools, still limited by the person's role);
-- an optional **expiry** (7, 30, 90 or 365 days; Sanctum's `expires_at`, so an expired token is refused by `auth:sanctum` like any other);
-- optionally, **only these tools**: the modal lists the tools the person's role allows right now in one table, each with its title, a Read or Write badge and what it does (the full description on hover; write rows are switched off until Write is ticked). Ticking some stores them as `tool:{name}` abilities and the token is limited to exactly those. Ticking none keeps the token at every tool the role allows;
-- in a panel with tenancy, the token also carries `tenant:{slug}` so it only works on that workspace's URL.
-
-![The Create token modal: read and write abilities, an expiry, and the tools table with a Read or Write badge per tool](https://raw.githubusercontent.com/packstub/filament-agents/main/docs/images/create-token.png)
-
-A token can only narrow what the role allows, never widen it: the picker offers only the tools the person may run, and the role is checked again on every call, so a tool the role loses later is refused even when the token names it. A typical split is one read-only token for a reporting agent and a second one scoped to `confirm-order` and `search-orders` for the agent that works the queue.
-
-The plain token is shown once, together with the ready-made connection snippets:
+The client connects with the token as a bearer header:
 
 ```bash
 claude mcp add --transport http acme https://acme.test/mcp --header "Authorization: Bearer 3|…"
@@ -34,11 +34,11 @@ claude mcp add --transport http acme https://acme.test/mcp --header "Authorizati
 { "mcpServers": { "acme": { "type": "http", "url": "https://acme.test/mcp", "headers": { "Authorization": "Bearer 3|…" } } } }
 ```
 
-Below, a table lists the person's tokens (label, abilities, tools, last used, expiry, created) with a **Revoke** action. Tokens are regular Sanctum tokens, so `$user->tokens()`, `expires_at` and Sanctum's pruning work as usual.
+**In a Filament panel**, the Agent access page of [Filament Agents](https://packstub.dev/docs/filament-agents/mcp-clients) mints these tokens for the signed-in person: abilities, expiry, a picker of the tools the role allows, the workspace, the connection snippets, and a table to revoke them.
 
 ## The endpoint
 
-`POST /mcp` by default (`packstub-agents.mcp.path`), registered with `Mcp::web()` once every panel is known. The middleware stack:
+`POST /mcp` by default (`packstub-agents.mcp.path`), registered with `Mcp::web()` once the app named its server. The middleware stack:
 
 ```php
 'middleware' => ['throttle:60,1', 'auth:sanctum', AuthenticateAgent::class],
@@ -46,9 +46,9 @@ Below, a table lists the person's tokens (label, abilities, tools, last used, ex
 
 Ahead of that stack the package always runs `AcceptJson`, which makes the request one that accepts JSON: a request that fails authentication (no token, a revoked or expired one) gets a JSON `401 {"message": "Unauthenticated."}` whatever `Accept` header the client sent, never the framework's redirect to a login route.
 
-`AuthenticateAgent` puts the request into the same shape as a panel request: the assistant's panel is made current, the person's locale is applied, and, when the path carries `{tenant}`, the workspace is resolved and set (see [Tenancy](tenancy.md)). Every tool then behaves exactly as it does in the chat.
+`AuthenticateAgent` puts the request into the same shape as any request of the person: the token's user is the current one on the guard the request authenticated on, the person's locale is applied, and, when the path carries `{tenant}`, the workspace is resolved and entered (see [Tenancy](tenancy.md)). Every tool then behaves exactly as it does for your own agent.
 
-Set `AGENT_MCP_ENABLED=false` to remove the route and the Agent access page.
+Set `AGENT_MCP_ENABLED=false` to remove the route.
 
 ## What a client sees
 
@@ -58,14 +58,12 @@ Set `AGENT_MCP_ENABLED=false` to remove the route and the Agent access page.
 - A **scoped** token (one or more `tool:{name}` abilities) lists only those tools; any other is "not found" to it, even one the role allows.
 - A tool the role does not allow is not listed; a direct call returns the refusal ("Your role (Viewer) is not allowed to do this.").
 
-The token checks live in `AgentTool::tokenRefusal()`, which returns why the current token may not run the tool ("This access token is read-only.", "This access token does not include update-license.") or null; `handle()` calls it too, so a tool invoked outside the server is refused with that message. `AgentTool::accessToken()` gives the current personal access token (null in the chat and for Sanctum's transient session token), `tokenTools($token)` the names a token is limited to, `tokenIsScoped($token)` whether it is — useful when an app gates a tool of its own that does not extend `AgentTool`, or wants to show what a token may do.
+The token checks live in `AgentTool::tokenRefusal()`, which returns why the current token may not run the tool ("This access token is read-only.", "This access token does not include update-license.") or null; `handle()` calls it too, so a tool invoked outside the server is refused with that message. `AgentTool::accessToken()` gives the current personal access token (null for your own agent and for Sanctum's transient session token), `tokenTools($token)` the names a token is limited to, `tokenIsScoped($token)` whether it is — useful when an app gates a tool of its own that does not extend `AgentTool`, or wants to show what a token may do.
 
 ## Testing the endpoint
 
 ```php
 $token = $user->createToken('desk', ['read', 'write'])->plainTextToken;
-// or, limited to two tools and a month:
-$token = $user->createToken('queue', ['read', 'write', 'tool:search-orders', 'tool:confirm-order'], now()->addDays(30))->plainTextToken;
 
 postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'], [
     'Authorization' => 'Bearer '.$token,
