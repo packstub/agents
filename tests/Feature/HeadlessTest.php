@@ -202,6 +202,35 @@ it('registers the poll endpoint under chat.path and chat.middleware for the conv
     getJson($url)->assertOk()->assertJsonPath('active', null)->assertJsonStructure(['active', 'version']);
 });
 
+it('names a missing worker on the status line once a turn has waited for one', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+
+    $conversation = app(AgentConversationStore::class)->startConversation($user, 'Hi');
+    $turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => 'Hi'], null, 'auto', null);
+    $url = route('packstub-agents.turn', ['conversation' => $conversation]);
+    $hint = __('No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.');
+
+    // Handed to the queue, nobody has taken it: "Thinking…" while the wait is short, the hint once it is not.
+    expect($turn->status)->toBe(AgentTurn::PENDING);
+    getJson($url)->assertOk()->assertJsonPath('active.statusText', __('Thinking…'));
+
+    $this->travel(AgentTurns::workerWait() + 1)->seconds();
+    getJson($url)->assertOk()->assertJsonPath('active.id', $turn->id)->assertJsonPath('active.statusText', $hint);
+
+    // A job that reports progress is running: what it says, not the hint. The sync driver never waits for a worker.
+    app(AgentTurns::class)->claim($turn);
+    app(AgentTurns::class)->snapshot($turn, null, 'Reading widgets…');
+    getJson($url)->assertOk()->assertJsonPath('active.statusText', 'Reading widgets…');
+
+    AgentTurn::query()->whereKey($turn->id)->update(['status' => AgentTurn::PENDING, 'status_text' => null, 'updated_at' => now()->subMinute()]);
+    expect(app(AgentTurns::class)->awaitingWorker($turn->fresh()))->toBeTrue();
+    config(['packstub-agents.chat.driver' => 'sync']);
+    expect(app(AgentTurns::class)->awaitingWorker($turn->fresh()))->toBeFalse()
+        ->and(app(AgentTurns::class)->statusText($turn->fresh()))->toBe(__('Thinking…'));
+});
+
 it('scaffolds the agent with a hint for a service provider, not a panel', function () {
     $path = app_path('Ai/Agents/Assistant.php');
     File::delete($path);

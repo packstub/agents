@@ -7,6 +7,7 @@ All notable changes to `packstub/agents` are documented here.
 ### Added
 
 - **A proposed call as a question.** `AgentTool::describe(array $arguments): ?string` lets a write tool phrase its own calls ("Confirm order RO-00016 for Acme?"); `ApprovableTool::question($tool, $arguments)` returns that sentence, or the tool's title and the first scalar argument when the tool has no `describe()`, and `ApprovableTool` passes it as the approval's reason, so the pending approval stored by laravel/ai carries the sentence a client shows. Filament Agents 1.8 renders the proposal with it.
+- **A missing worker is named.** A turn handed to the queue that no worker takes within `chat.worker_wait` seconds (`AGENT_WORKER_WAIT`, 10) gets a status line that says so, with the command to run or the sync driver to set, instead of "Thinking…" until `chat.job_timeout`. `AgentTurns::statusText($turn)` gives a chat surface the line the poll endpoint returns; `awaitingWorker($turn)` the bare check.
 
 ## 1.0.0 — 2026-09-09
 

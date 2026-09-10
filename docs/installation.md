@@ -88,6 +88,8 @@ Put `{tenant}` in the MCP path (`'mcp/{tenant}'`) and a token is bound to the wo
 
 Every answer is produced in a queued job (`Packstub\Agents\Jobs\RunAgentTurn`), so no request holds a connection open while the model works and an answer keeps coming after the request that asked for it ended. Run a worker as you would for any queued job (`php artisan queue:work`, Horizon, Laravel Cloud's workers); `chat.queue_connection` and `chat.queue` pick where the jobs go.
 
+A turn that sits on the queue for `chat.worker_wait` seconds (10) without a worker taking it says so on the status line, with the command to run, instead of "Thinking…" until the job timeout.
+
 No worker? Set `chat.driver` to `sync` (`AGENT_TURN_DRIVER=sync`) and the job runs inside the request that asked, whatever the app's queue connection is — everything else the same, except that an answer dies with the request. See [The agent](assistant.md#how-a-turn-runs).
 
 ## Sanctum

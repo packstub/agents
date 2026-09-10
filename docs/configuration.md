@@ -25,6 +25,7 @@
 | `chat.queue_connection` | `null` | `AGENT_QUEUE_CONNECTION` | the queue connection the turn job runs on with the `queue` driver; `null` = the app's default |
 | `chat.queue` | `null` | `AGENT_QUEUE` | the queue name; `null` = the connection's default |
 | `chat.job_timeout` | `600` | `AGENT_JOB_TIMEOUT` | how long one turn may run on the worker, in seconds; a turn whose job went quiet for longer is marked failed |
+| `chat.worker_wait` | `10` | `AGENT_WORKER_WAIT` | how long a turn may wait for a worker before the status line says none has taken it, in seconds (the queue driver only) |
 | `chat.poll_interval` | `600` | `AGENT_POLL_INTERVAL` | how often a chat surface asks for the answer so far while a turn runs, in milliseconds |
 | `chat.path` | `agents` | | where the poll endpoint lives: `GET {path}/chat/{conversation}/turn`, see [Routes](installation.md#routes) |
 | `chat.middleware` | `['web', 'auth']` | | the middleware of that endpoint; the Filament plugin registers its own on the panel's routes instead |

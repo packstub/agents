@@ -22,7 +22,7 @@ The job captures who asked and where (`AgentContext::capture()`: the user, the g
 
 `GET {chat.path}/chat/{conversation}/turn` (`chat.poll_interval` apart) returns the answer so far, rendered, with a version stamp; `AgentTurns::active()`, `queued()` and `latest()` read the state back in code. Follow-ups wait as `queued` rows and start, in order, as soon as the previous turn is done. `AgentTurns::requestStop()` cuts a running answer short: what the assistant had written stays as its answer, marked "(stopped)". An answer the provider ended early — a stream that closed mid-answer, the model's length limit, a content filter — is kept the same way, marked "(cut short)" with the reason (`AgentTurns::cutShortReason()`).
 
-Run a queue worker for the jobs (see [Installation](installation.md#a-queue-worker)). A job the queue never finishes — a worker that died mid-answer — is marked failed after `chat.job_timeout`, with the question kept. With `chat.driver` set to `sync` (`AGENT_TURN_DRIVER=sync`) the job runs inside the request, whatever queue the app uses.
+Run a queue worker for the jobs (see [Installation](installation.md#a-queue-worker)). A turn no worker takes within `chat.worker_wait` seconds gets a status line that names the missing worker (`AgentTurns::statusText()` is that line for a chat surface of your own). A job the queue never finishes — a worker that died mid-answer — is marked failed after `chat.job_timeout`, with the question kept. With `chat.driver` set to `sync` (`AGENT_TURN_DRIVER=sync`) the job runs inside the request, whatever queue the app uses.
 
 ## Long chats
 

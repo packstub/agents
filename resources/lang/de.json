@@ -26,5 +26,6 @@
     "You are not allowed to do this.": "Das darfst du nicht.",
     "You used your AI budget for the month.": "Sie haben Ihr KI-Budget für diesen Monat aufgebraucht.",
     "You used your AI budget for today. It resets at midnight.": "Sie haben Ihr KI-Budget für heute aufgebraucht. Es wird um Mitternacht zurückgesetzt.",
-    "Your role (:role) is not allowed to do this.": "Ihre Rolle (:role) darf das nicht."
+    "Your role (:role) is not allowed to do this.": "Ihre Rolle (:role) darf das nicht.",
+    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Noch kein Queue-Worker hat diesen Zug übernommen. Starte php artisan queue:work, oder setze AGENT_TURN_DRIVER=sync, damit die Antwort in der Anfrage entsteht."
 }

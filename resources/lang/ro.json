@@ -26,5 +26,6 @@
     "You are not allowed to do this.": "Nu ai voie să faci asta.",
     "You used your AI budget for the month.": "Ți-ai consumat bugetul AI pe luna aceasta.",
     "You used your AI budget for today. It resets at midnight.": "Ți-ai consumat bugetul AI pe ziua de azi. Se resetează la miezul nopții.",
-    "Your role (:role) is not allowed to do this.": "Rolul tău (:role) nu are voie să facă asta."
+    "Your role (:role) is not allowed to do this.": "Rolul tău (:role) nu are voie să facă asta.",
+    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Niciun worker de coadă nu a preluat încă această rundă. Rulează php artisan queue:work sau setează AGENT_TURN_DRIVER=sync ca răspunsul să se producă în cerere."
 }

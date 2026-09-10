@@ -26,5 +26,6 @@
     "You are not allowed to do this.": "Вам это не разрешено.",
     "You used your AI budget for the month.": "Вы исчерпали свой AI-бюджет на месяц.",
     "You used your AI budget for today. It resets at midnight.": "Вы исчерпали свой AI-бюджет на сегодня. Он сбрасывается в полночь.",
-    "Your role (:role) is not allowed to do this.": "Вашей роли (:role) это не разрешено."
+    "Your role (:role) is not allowed to do this.": "Вашей роли (:role) это не разрешено.",
+    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Ни один воркер очереди пока не взял этот ход. Запустите php artisan queue:work или задайте AGENT_TURN_DRIVER=sync, чтобы отвечать внутри запроса."
 }

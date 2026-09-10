@@ -40,7 +40,7 @@ class TurnController
                 'active' => $active ? [
                     'id' => $active->id,
                     'status' => $active->status,
-                    'statusText' => $active->status_text ?? __('Thinking…'),
+                    'statusText' => $turns->statusText($active),
                     'html' => filled($active->text) ? Markdown::render((string) $active->text) : '',
                 ] : null,
                 'version' => md5(json_encode([(string) $updated, $latest?->id, $latest?->status, $turns->queued($conversation)->pluck('id')->all()])),
