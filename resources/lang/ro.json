@@ -5,7 +5,9 @@
     "A chart needs between 1 and 8 series.": "Un grafic are nevoie de 1 până la 8 serii.",
     "Everyone": "Toți",
     "Invalid arguments: :errors": "Argumente invalide: :errors",
+    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Niciun worker de coadă nu a preluat încă această rundă. Rulează php artisan queue:work sau setează AGENT_TURN_DRIVER=sync ca răspunsul să se producă în cerere.",
     "Series \":label\" has :n values for :m labels.": "Seria „:label” are :n valori pentru :m etichete.",
+    "Show me the latest :records.": "Arată-mi cele mai recente :records.",
     "Summary of the earlier part of this conversation (those messages are not shown again):": "Rezumatul părții anterioare a acestei discuții (acele mesaje nu mai sunt afișate):",
     "That question is too long (max :n characters).": "Întrebarea e prea lungă (maximum :n caractere).",
     "The action failed: :message": "Acțiunea a eșuat: :message",
@@ -21,11 +23,14 @@
     "Understood, I will build on that summary.": "Am înțeles, pornesc de la acest rezumat.",
     "Unknown table \":key\".": "Tabel necunoscut „:key”.",
     "User :id": "Utilizatorul :id",
+    "What can you help me with?": "Cu ce mă poți ajuta?",
+    "What is the next step for :record?": "Care este pasul următor pentru :record?",
+    "What needs attention today?": "Ce necesită atenție astăzi?",
+    "What should I know about :record?": "Ce ar trebui să știu despre :record?",
     "Workspace :id": "Spațiul :id",
     "Writing…": "Scrie…",
     "You are not allowed to do this.": "Nu ai voie să faci asta.",
     "You used your AI budget for the month.": "Ți-ai consumat bugetul AI pe luna aceasta.",
     "You used your AI budget for today. It resets at midnight.": "Ți-ai consumat bugetul AI pe ziua de azi. Se resetează la miezul nopții.",
-    "Your role (:role) is not allowed to do this.": "Rolul tău (:role) nu are voie să facă asta.",
-    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Niciun worker de coadă nu a preluat încă această rundă. Rulează php artisan queue:work sau setează AGENT_TURN_DRIVER=sync ca răspunsul să se producă în cerere."
+    "Your role (:role) is not allowed to do this.": "Rolul tău (:role) nu are voie să facă asta."
 }

@@ -80,10 +80,22 @@ class Assistant extends Agent
             'Warehouses: '.Warehouse::query()->pluck('code')->join(', ').'.',
         ];
     }
+
+    /** @return list<string> */
+    public function suggestions(): array
+    {
+        return [
+            'What needs attention today?',
+            'Which orders are waiting for a phone call?',
+            'Revenue this week by store, compared to last week',
+        ];
+    }
 }
 ```
 
 Register it with `Agents::useAgent(Assistant::class)` in a service provider. Until you do, the package's `DefaultAgent` answers with only the registered tools and a generic persona.
+
+`suggestions()` is what an empty chat offers as one-click starter questions, in the person's language. The default set is generic: what needs attention today, "Show me the latest orders." for the first two agent resources, and what the assistant can do; a chat opened from a record (`$this->pageContext`) gets "What should I know about Order RO-00012?" and "What is the next step for Order RO-00012?" instead. Return your own from the domain, and keep the parent's page-context ones with `[...parent::suggestions(), …]` when a record is open.
 
 ### How the prompt is assembled
 

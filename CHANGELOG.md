@@ -2,6 +2,16 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.2.0 — 2026-09-10
+
+### Added
+
+- **Starter questions.** `Agent::suggestions()` returns the questions an empty chat offers as one-click prompts, in the person's language: by default what needs attention today, the latest records of the first two agent resources and what the assistant can do, or, when the chat was opened from a record, two questions about that record. An app returns its own from the domain ("Which orders are waiting for a phone call?"). Filament Agents 1.9 shows them on a new chat.
+
+### Fixed
+
+- **Page context without a panel.** `PageContext::resolve('widgets/12')` resolved the record through a Filament resource method, so a headless `AgentResource` (one registered with `Agents::useResources()` in a plain app) raised an error instead of a label; it now falls back to the resource's `getEloquentQuery()` or its model.
+
 ## 1.1.0 — 2026-09-10
 
 ### Added
