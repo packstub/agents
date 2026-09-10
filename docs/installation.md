@@ -117,7 +117,7 @@ Skip this when you only run turns from your own app and set `AGENT_MCP_ENABLED=f
 | Route | Where | Middleware |
 | --- | --- | --- |
 | `POST {mcp.path}` | the MCP endpoint | `mcp.middleware` (`throttle:60,1`, `auth:sanctum`, `AuthenticateAgent`) |
-| `GET {chat.path}/chat/{conversation}/turn` | what a chat polls while an answer is produced: the answer so far, rendered, and a version stamp | `chat.middleware` (`['web', 'auth']`) |
+| `GET {chat.path}/chat/{conversation}/turn` | what a chat polls while an answer is produced: `{"active": {"id", "status", "statusText", "html"} \| null, "version"}` — the running turn with its status line (`AgentTurns::statusText()`) and the answer so far, rendered, and a version stamp that changes whenever the conversation did | `chat.middleware` (`['web', 'auth']`) |
 
 `chat.path` defaults to `agents`. The poll endpoint answers for the conversation's own participant; it is left out when the Filament plugin registered its own on the panel.
 

@@ -52,9 +52,9 @@ Agents::useResources([Orders::class, Customers::class]);
 | `agentContextLabel(Model $record)` | "The person opened this chat from …" ("Order RO-00012"), see [Page context](#page-context) |
 | `agentFilters()` | the vocabulary the model may pass to your search tools |
 
-`AgentResources::all()` lists the registered classes by key, `find($key)` returns one, `forModel(Order::class)` finds the class for a model when the class exposes a static `getModel()`.
+`AgentResources::all()` lists the registered classes by key, `has($key)` says whether one is registered, `find($key)` returns one, `forModel(Order::class)` finds the class for a model when the class exposes a static `getModel()`, and `filters($key)` returns a resource's filter vocabulary.
 
-**In a Filament panel**, a resource implements the same contract with the `InteractsWithAgent` trait, which derives the key, the summary, the label and the record url from the resource itself, and the plugin discovers every resource of the panel that implements it; its `show-table` tool then renders the resource's own table under an answer. See [Filament Agents](https://packstub.dev/docs/filament-agents/tables-and-charts).
+**In a Filament panel**, a resource implements the same contract with the `Packstub\Agents\Concerns\InteractsWithAgent` trait (shipped here, used there), which derives the key, the summary, the label and the record url from the resource itself, and the plugin discovers every resource of the panel that implements it; its `show-table` tool then renders the resource's own table under an answer. See [Filament Agents](https://packstub.dev/docs/filament-agents/tables-and-charts).
 
 ## Filters
 

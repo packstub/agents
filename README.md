@@ -16,7 +16,7 @@ An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https:
 
 - **[One tool list, two front doors](#writing-tools)** — every capability is a `laravel/mcp` tool. Your agent calls it through laravel/ai's bridge; external agents call it over HTTP with a Sanctum token. Add a tool to the list and it is everywhere.
 - **[Authorization is your app's](#writing-tools)** — a tool declares the ability string that gates the action it mirrors. The agent can never do more than the signed-in person could by hand, and a token narrows that further for external agents: read-only, or just the tools they need.
-- **[Writes are proposals](#writing-tools)** — a write tool is wrapped for approval (laravel/ai approvals), so a turn pauses until the person decides. Over MCP, a write token runs it directly with the person's role.
+- **[Writes are proposals](#writing-tools)** — a write tool is wrapped for approval (laravel/ai approvals), so a turn pauses until the person decides; the proposal is a question in the person's words ("Confirm order RO-00016 for Acme?") from the tool's own `describe()`. Over MCP, a write token runs it directly with the person's role.
 - **[Turns that survive the request](#running-a-turn)** — every answer is produced by a queued job that records its progress, tokens, tools and how it ended in `agent_turns`; a poll endpoint reads it back. No worker? A sync driver runs the job inside the request.
 - **[A bounded bill](#budgets-and-limits)** — a per-user burst limit, answers per day and tokens per day and per month per workspace, tokens per day and per month per user, and a prompt length cap, all checked before a turn reaches the provider and overridable per workspace and per user in `agent_limits`.
 - **[Your assistant, your prompt](#the-agent)** — a scaffolded agent class with two slots to fill (who it is, what the workspace is) on top of generic working and answering rules, provider-cached instructions and a model catalog (Claude Opus 5, Claude Haiku 4.5, Claude Opus 5 · Deep) for Anthropic, OpenAI, Gemini or xAI — any other laravel/ai provider, Ollama included, runs on its smartest and cheapest models. A failover list (`AGENT_FAILOVER=gemini,openai`) keeps answering when a provider is overloaded.
@@ -36,7 +36,7 @@ composer require packstub/agents
 php artisan packstub-agents:install
 ```
 
-The install command publishes the config, runs the migrations and scaffolds `app/Ai/Agents/Assistant.php`. Register the agent and the tools in a service provider and put a provider key in `.env` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `XAI_API_KEY`, with `AGENT_PROVIDER=anthropic|openai|gemini|xai`):
+The install command publishes the config, offers to run the migrations and scaffolds `app/Ai/Agents/Assistant.php`. Register the agent and the tools in a service provider and put a provider key in `.env` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `XAI_API_KEY`, with `AGENT_PROVIDER=anthropic|openai|gemini|xai`):
 
 ```php
 use Packstub\Agents\Facades\Agents;
@@ -109,7 +109,7 @@ class AcmeServer extends \Packstub\Agents\Mcp\AgentServer
 }
 ```
 
-`Agents::useTools([...])` works instead of a server class. Read more: [Tools](https://packstub.dev/docs/agents/tools).
+`Agents::useTools([...])` works instead of a server class. A write tool may add `describe(array $arguments): ?string` to phrase its own proposals ("Confirm order RO-00016 for Acme?"); without one the question is the tool's title and its first argument. Read more: [Tools](https://packstub.dev/docs/agents/tools).
 
 ## The agent
 
@@ -141,10 +141,10 @@ Start a conversation, queue a turn, poll it. The `RunAgentTurn` job restores who
 
 ```php
 $conversation = app(AgentConversationStore::class)->startConversation($user, $question);
-$turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => $question], null, 'auto', null);
+$turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => $question], null, 'auto', null); // model key, page context ("orders/12")
 ```
 
-`GET agents/chat/{conversation}/turn` returns the answer so far; run `php artisan queue:work`, or set `AGENT_TURN_DRIVER=sync` to run the job inside the request. Long chats replay a token-budgeted window with a rolling summary. Read more: [The agent](https://packstub.dev/docs/agents/assistant#how-a-turn-runs).
+`GET agents/chat/{conversation}/turn` returns the answer so far and a status line; run `php artisan queue:work`, or set `AGENT_TURN_DRIVER=sync` to run the job inside the request — a turn no worker takes within `AGENT_WORKER_WAIT` seconds says so on that status line. Long chats replay a token-budgeted window with a rolling summary. Read more: [The agent](https://packstub.dev/docs/agents/assistant#how-a-turn-runs).
 
 ## Filters and charts
 
@@ -216,11 +216,13 @@ Set the MCP path with the workspace in it (`'mcp' => ['path' => 'mcp/{tenant}']`
 Agents::useAgent(Assistant::class);                       // your Agent subclass
 Agents::useServer(AcmeServer::class);                     // the MCP server class with the tool list
 Agents::useTools([...]);                                  // or a plain tool list
+Agents::addTools([...]);                                  // tools appended to the server's own list
 Agents::useResources([Orders::class]);                    // the AgentResource classes
 Agents::useMiddleware([AuditTurns::class]);               // your own agent middleware
 Agents::authorizeUsing(fn (string $ability) => ...);      // how an ability is checked for the current person
 Agents::roleLabelUsing(fn () => ...);                     // the person's role, for the prompt and refusals
 Agents::credentialsUsing(fn () => new WorkspaceCredentials(...)); // a workspace's own provider key
+Agents::limitsAuthorizeUsing(fn () => ...);               // who may edit the agent_limits rows
 Agents::tenantUsing(fn () => ...);                        // the current workspace
 ```
 

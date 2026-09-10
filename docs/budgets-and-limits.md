@@ -25,20 +25,20 @@ Rows in the `agent_limits` table (`Packstub\Agents\Models\AgentLimit`) override 
 | Scope | Applies to | Fields |
 | --- | --- | --- |
 | `global` | every workspace and user | all of them, plus `enabled` |
-| `tenant` (`tenant_id`) | one workspace | all of them |
-| `user` (`user_id`) | one account, in every workspace | the per-user fields: `enabled`, `turns_per_minute`, `user_tokens_per_day`, `user_tokens_per_month`, `prompt_max_chars` |
+| `tenant` (`scope_id` = the workspace key) | one workspace | all of them |
+| `user` (`scope_id` = the user id) | one account, in every workspace | the per-user fields: `enabled`, `turns_per_minute`, `user_tokens_per_day`, `user_tokens_per_month`, `prompt_max_chars` |
 
 ```php
 use Packstub\Agents\Models\AgentLimit;
 use Packstub\Agents\Support\AgentLimits;
 
 AgentLimit::query()->create(['scope' => 'global', 'turns_per_day' => 300]);
-AgentLimit::query()->create(['scope' => 'tenant', 'tenant_id' => $team->id, 'tokens_per_month' => 10_000_000, 'note' => 'Enterprise plan']);
-AgentLimit::query()->create(['scope' => 'user', 'user_id' => $user->id, 'enabled' => false]);
+AgentLimit::query()->create(['scope' => 'tenant', 'scope_id' => (string) $team->id, 'tokens_per_month' => 10_000_000, 'note' => 'Enterprise plan']);
+AgentLimit::query()->create(['scope' => 'user', 'scope_id' => (string) $user->id, 'enabled' => false]);
 AgentLimits::flush();
 ```
 
-Empty fields inherit: user → workspace → everyone → the config defaults. `enabled` on a workspace row switches the agent off for that workspace entirely (`AgentModels::enabled()` turns false); on a user row it does the same for one person. Rows live on `packstub-agents.limits_connection` (`AGENT_LIMITS_CONNECTION`), the central connection in a database-per-tenant app, since limits are the operator's, not the workspace's. Resolved limits are cached for the request; call `AgentLimits::flush()` after an edit. `Agents::limitsAuthorizeUsing()` and `Agents::canManageLimits()` are the hook and the check for who may edit them in your own admin.
+Empty fields inherit: user → workspace → everyone → the config defaults. `enabled` on a workspace row switches the agent off for that workspace entirely (`AgentModels::enabled()` turns false, so a chat surface hides the assistant); on a user row, or in an app without workspaces, it refuses every turn instead (`AgentBudget::refusal()` names it) while the assistant stays visible. Rows live on `packstub-agents.limits_connection` (`AGENT_LIMITS_CONNECTION`), the central connection in a database-per-tenant app, since limits are the operator's, not the workspace's. Resolved limits are cached for the request; call `AgentLimits::flush()` after an edit. `Agents::limitsAuthorizeUsing()` and `Agents::canManageLimits()` are the hook and the check for who may edit them in your own admin.
 
 **In a Filament panel**, the operator's AI limits resource of [Filament Agents](https://packstub.dev/docs/filament-agents/budgets-and-limits) edits these rows, and its AI turns page lists the records below.
 
@@ -52,6 +52,10 @@ AgentLimits::effective();          // the merged limits for the current tenant a
 AgentLimits::effective($tenant, $user);
 AgentBudget::refusal($prompt);     // the reason a turn may not start, or null
 AgentBudget::summary();            // turns today, tokens this month, per-user counters and their limits
+AgentBudget::turnsToday();         // the counters behind them, for the workspace…
+AgentBudget::tokensToday($userId); // …and for one person (null = the workspace)
+AgentBudget::tokensThisMonth($userId);
+AgentBudget::hit();                // count a turn against the per-user burst limit (the job does this)
 ```
 
 `AgentBudget::summary()` is what a workspace settings page shows next to "your AI usage this month". Every counter comes from `agent_conversation_messages`, so no extra bookkeeping is needed.

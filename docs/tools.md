@@ -9,7 +9,7 @@ php artisan packstub-agents:tool SearchOrders --ability=orders.view
 php artisan packstub-agents:tool ConfirmOrder --write --ability=orders.manage
 ```
 
-The command writes `app/Mcp/Tools/<Name>.php`. Without `--write` the class carries `#[IsReadOnly]`; `--ability` fills the `$ability` property.
+The command writes `app/Mcp/Tools/<Name>.php`. Without `--write` the class carries `#[IsReadOnly]`; `--ability` fills the `$ability` property; `--force` overwrites a file that exists.
 
 ## Anatomy
 
@@ -73,7 +73,7 @@ There is no separate "destructive" tier: a write is a write. If a change needs e
 
 ### The proposal as a question
 
-A paused call is shown as a question the person can answer. Give a write tool a `describe()` and it phrases its own calls; without one, the question is the tool's title followed by the first scalar argument ("Confirm Order RO-00016?", "Retire Widget 12?"). The sentence travels as the approval's reason (laravel/ai's `PendingApproval::$reason`), so any client that reads the pending approvals gets it too.
+A paused call is shown as a question the person can answer. Give a write tool a `describe()` and it phrases its own calls; without one, the question is the tool's title followed by the first scalar argument ("Confirm Order RO-00016?", "Retire Widget 12?"). The sentence travels as the approval's reason (laravel/ai's `PendingApproval::$reason`), so any client that reads the pending approvals gets it too; `ApprovableTool::question($tool, $arguments)` is the same sentence in code, for a chat surface of your own that renders a stored pending call.
 
 ```php
 public function describe(array $arguments): ?string
@@ -113,11 +113,13 @@ class AcmeServer extends AgentServer
 {
     protected string $name = 'Acme';
 
-    protected string $version = '1.0.0';
+    protected string $version = '1.0.0'; // what MCP clients see in the handshake
 
     protected string $instructions = <<<'MARKDOWN'
         The back office of an online shop. Start with search-orders; confirm-order and ship-order change data.
         MARKDOWN;
+
+    public int $defaultPaginationLength = 50; // rows per page for MCP list requests (laravel/mcp)
 
     protected array $tools = [
         Tools\WorkspaceOverview::class,
