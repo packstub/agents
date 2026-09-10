@@ -58,10 +58,23 @@ class PageContext
         return null;
     }
 
-    /** @param  class-string<AgentResource>  $resource */
+    /**
+     * The record behind a reference: a Filament resource resolves it as a route binding (its own query, soft
+     * deletes and all); a headless AgentResource through its query, or its model's.
+     *
+     * @param  class-string<AgentResource>  $resource
+     */
     protected static function record(string $resource, string $id): ?Model
     {
-        $record = $resource::resolveRecordRouteBinding($id);
+        if (method_exists($resource, 'resolveRecordRouteBinding')) {
+            $record = $resource::resolveRecordRouteBinding($id);
+        } elseif (method_exists($resource, 'getEloquentQuery')) {
+            $record = $resource::getEloquentQuery()->whereKey($id)->first();
+        } elseif (method_exists($resource, 'getModel')) {
+            $record = $resource::getModel()::query()->whereKey($id)->first();
+        } else {
+            return null;
+        }
 
         return $record instanceof Model ? $record : null;
     }

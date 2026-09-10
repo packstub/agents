@@ -16,6 +16,7 @@ use Packstub\Agents\Ai\Middleware\EnforceBudget;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Mcp\AgentTool;
 use Packstub\Agents\Support\AgentModels;
+use Packstub\Agents\Support\AgentResources;
 use Packstub\Agents\Support\PageContext;
 
 /**
@@ -196,6 +197,33 @@ abstract class Agent implements AgentContract, Conversational, HasMiddleware, Ha
     public function dynamicInstructions(): string
     {
         return "## Now\n".implode("\n", array_map(fn (string $l) => '- '.$l, $this->context()));
+    }
+
+    /**
+     * Starter questions for an empty chat, in the person's language: a chat surface offers them as one-click
+     * prompts. The default set is generic — what needs attention, what the assistant can do, the latest records
+     * of the first agent resources, and two about the record the chat was opened from ($this->pageContext).
+     * An app returns its own from the domain ("Which orders are waiting for a phone call?"), keeping the
+     * parent's page-context ones if it likes: [...parent::suggestions(), 'Revenue this week by store'].
+     *
+     * @return list<string>
+     */
+    public function suggestions(): array
+    {
+        if ($context = PageContext::resolve($this->pageContext)) {
+            return [
+                __('What should I know about :record?', ['record' => $context['label']]),
+                __('What is the next step for :record?', ['record' => $context['label']]),
+                __('What needs attention today?'),
+            ];
+        }
+
+        $records = array_map(
+            fn (string $key) => __('Show me the latest :records.', ['records' => str_replace('_', ' ', $key)]),
+            array_slice(array_keys(AgentResources::all()), 0, 2),
+        );
+
+        return [__('What needs attention today?'), ...$records, __('What can you help me with?')];
     }
 
     /**

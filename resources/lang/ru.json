@@ -5,7 +5,9 @@
     "A chart needs between 1 and 8 series.": "Для графика нужно от 1 до 8 рядов.",
     "Everyone": "Все",
     "Invalid arguments: :errors": "Неверные аргументы: :errors",
+    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Ни один воркер очереди пока не взял этот ход. Запустите php artisan queue:work или задайте AGENT_TURN_DRIVER=sync, чтобы отвечать внутри запроса.",
     "Series \":label\" has :n values for :m labels.": "Ряд «:label» содержит :n значений для :m меток.",
+    "Show me the latest :records.": "Покажи последние :records.",
     "Summary of the earlier part of this conversation (those messages are not shown again):": "Краткое содержание предыдущей части этого разговора (те сообщения больше не показываются):",
     "That question is too long (max :n characters).": "Вопрос слишком длинный (максимум :n символов).",
     "The action failed: :message": "Действие не удалось: :message",
@@ -21,11 +23,14 @@
     "Understood, I will build on that summary.": "Понятно, буду опираться на это краткое содержание.",
     "Unknown table \":key\".": "Неизвестная таблица «:key».",
     "User :id": "Пользователь :id",
+    "What can you help me with?": "Чем ты можешь помочь?",
+    "What is the next step for :record?": "Какой следующий шаг для :record?",
+    "What needs attention today?": "Что требует внимания сегодня?",
+    "What should I know about :record?": "Что мне стоит знать о :record?",
     "Workspace :id": "Пространство :id",
     "Writing…": "Пишет…",
     "You are not allowed to do this.": "Вам это не разрешено.",
     "You used your AI budget for the month.": "Вы исчерпали свой AI-бюджет на месяц.",
     "You used your AI budget for today. It resets at midnight.": "Вы исчерпали свой AI-бюджет на сегодня. Он сбрасывается в полночь.",
-    "Your role (:role) is not allowed to do this.": "Вашей роли (:role) это не разрешено.",
-    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Ни один воркер очереди пока не взял этот ход. Запустите php artisan queue:work или задайте AGENT_TURN_DRIVER=sync, чтобы отвечать внутри запроса."
+    "Your role (:role) is not allowed to do this.": "Вашей роли (:role) это не разрешено."
 }

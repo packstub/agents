@@ -188,3 +188,11 @@ it('builds the prompt from the persona, the domain, the generic rules and the li
         ->and(WidgetAgent::supportsReasoning('gpt-5.2'))->toBeTrue()
         ->and(WidgetAgent::supportsReasoning('gpt-4o'))->toBeFalse();
 });
+
+it('offers starter questions for an empty chat: generic ones with the first agent resources, or two about the record the chat was opened from', function () {
+    actingAs($this->user());
+    [$alpha] = $this->widgets();
+
+    expect((new WidgetAgent)->suggestions())->toBe(['What needs attention today?', 'Show me the latest widgets.', 'What can you help me with?'])
+        ->and((new WidgetAgent(pageContext: 'widgets/'.$alpha->id))->suggestions())->toBe(['What should I know about Widget Alpha?', 'What is the next step for Widget Alpha?', 'What needs attention today?']);
+});

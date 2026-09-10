@@ -5,7 +5,9 @@
     "A chart needs between 1 and 8 series.": "Ein Diagramm braucht 1 bis 8 Reihen.",
     "Everyone": "Alle",
     "Invalid arguments: :errors": "Ungültige Argumente: :errors",
+    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Noch kein Queue-Worker hat diesen Zug übernommen. Starte php artisan queue:work, oder setze AGENT_TURN_DRIVER=sync, damit die Antwort in der Anfrage entsteht.",
     "Series \":label\" has :n values for :m labels.": "Reihe „:label“ hat :n Werte für :m Beschriftungen.",
+    "Show me the latest :records.": "Zeig mir die neuesten :records.",
     "Summary of the earlier part of this conversation (those messages are not shown again):": "Zusammenfassung des früheren Teils dieser Unterhaltung (diese Nachrichten werden nicht erneut angezeigt):",
     "That question is too long (max :n characters).": "Die Frage ist zu lang (maximal :n Zeichen).",
     "The action failed: :message": "Die Aktion ist fehlgeschlagen: :message",
@@ -21,11 +23,14 @@
     "Understood, I will build on that summary.": "Verstanden, ich baue auf dieser Zusammenfassung auf.",
     "Unknown table \":key\".": "Unbekannte Tabelle „:key“.",
     "User :id": "Benutzer :id",
+    "What can you help me with?": "Wobei kannst du mir helfen?",
+    "What is the next step for :record?": "Was ist der nächste Schritt für :record?",
+    "What needs attention today?": "Was braucht heute Aufmerksamkeit?",
+    "What should I know about :record?": "Was sollte ich über :record wissen?",
     "Workspace :id": "Arbeitsbereich :id",
     "Writing…": "Schreibt…",
     "You are not allowed to do this.": "Das darfst du nicht.",
     "You used your AI budget for the month.": "Sie haben Ihr KI-Budget für diesen Monat aufgebraucht.",
     "You used your AI budget for today. It resets at midnight.": "Sie haben Ihr KI-Budget für heute aufgebraucht. Es wird um Mitternacht zurückgesetzt.",
-    "Your role (:role) is not allowed to do this.": "Ihre Rolle (:role) darf das nicht.",
-    "No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.": "Noch kein Queue-Worker hat diesen Zug übernommen. Starte php artisan queue:work, oder setze AGENT_TURN_DRIVER=sync, damit die Antwort in der Anfrage entsteht."
+    "Your role (:role) is not allowed to do this.": "Ihre Rolle (:role) darf das nicht."
 }
