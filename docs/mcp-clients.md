@@ -38,7 +38,7 @@ claude mcp add --transport http acme https://acme.test/mcp --header "Authorizati
 
 ## The endpoint
 
-`POST /mcp` by default (`packstub-agents.mcp.path`), registered with `Mcp::web()` once the app named its server. The middleware stack:
+`POST /mcp` by default (`packstub-agents.mcp.path`), registered with `Mcp::web()` whenever `mcp.enabled` is on — on the app's server class, or the package's own `AgentServer` with the tools given to `Agents::useTools()` until one is named. The middleware stack:
 
 ```php
 'middleware' => ['throttle:60,1', 'auth:sanctum', AuthenticateAgent::class],

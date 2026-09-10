@@ -14,7 +14,7 @@
 | `models` | see below | `AGENT_MODEL`, `AGENT_MODEL_FAST`, `AGENT_MODEL_DEEP` | the model catalog per provider: model, effort, an optional label (the model's name otherwise) and optionally the provider the entry runs on |
 | `max_steps` | `12` | | tool round-trips one turn may take before the agent has to answer |
 | `max_tokens` | `4096` | | answer length |
-| `max_conversation_messages` | `40` | | how many earlier messages a long chat replays |
+| `max_conversation_messages` | `40` | | a second ceiling on the history window beside `history.max_tokens`: at most this many earlier rows are replayed, however many fit the token budget |
 | `middleware` | `[]` | | your own agent middleware, run on every turn after the package's guard rails; see [Middleware](assistant.md#middleware) |
 | `history.max_tokens` | `24000` | `AGENT_HISTORY_MAX_TOKENS` | the history window, in estimated tokens; what no longer fits is folded into a rolling summary the model reads first |
 | `history.keep_tool_results_turns` | `3` | | tool results older than this many turns are replaced by a one-line placeholder when replayed |
@@ -25,12 +25,13 @@
 | `chat.queue_connection` | `null` | `AGENT_QUEUE_CONNECTION` | the queue connection the turn job runs on with the `queue` driver; `null` = the app's default |
 | `chat.queue` | `null` | `AGENT_QUEUE` | the queue name; `null` = the connection's default |
 | `chat.job_timeout` | `600` | `AGENT_JOB_TIMEOUT` | how long one turn may run on the worker, in seconds; a turn whose job went quiet for longer is marked failed |
+| `chat.worker_wait` | `10` | `AGENT_WORKER_WAIT` | how long a turn may wait for a worker before the status line says none has taken it, in seconds (the queue driver only) |
 | `chat.poll_interval` | `600` | `AGENT_POLL_INTERVAL` | how often a chat surface asks for the answer so far while a turn runs, in milliseconds |
 | `chat.path` | `agents` | | where the poll endpoint lives: `GET {path}/chat/{conversation}/turn`, see [Routes](installation.md#routes) |
 | `chat.middleware` | `['web', 'auth']` | | the middleware of that endpoint; the Filament plugin registers its own on the panel's routes instead |
 | `chat.keep_turns_days` | `90` | `AGENT_KEEP_TURNS_DAYS` | how long ended turns (the per-turn record) are kept; `null` keeps them; pruned by `model:prune --model=Packstub\Agents\Models\AgentTurn` |
 | `log.channel` | `null` | `AGENT_LOG_CHANNEL` | the log channel that gets one line per ended turn (provider, model, tokens, tools, duration, how it ended); `null` logs nothing. See [What each turn cost](budgets-and-limits.md#what-each-turn-cost) |
-| `limits.*` | see [Budgets and limits](budgets-and-limits.md) | `AGENT_TURNS_PER_MINUTE` … | the platform ceiling |
+| `limits.*` | see [Budgets and limits](budgets-and-limits.md) | `AGENT_TURNS_PER_MINUTE`, `AGENT_TURNS_PER_DAY`, `AGENT_TOKENS_PER_DAY`, `AGENT_TOKENS_PER_MONTH`, `AGENT_USER_TOKENS_PER_DAY`, `AGENT_USER_TOKENS_PER_MONTH`, `AGENT_PROMPT_MAX_CHARS` | the platform ceiling |
 | `limits_connection` | `null` | `AGENT_LIMITS_CONNECTION` | the connection of the `agent_limits` table (the central one in a database-per-tenant app) |
 | `mcp.enabled` | `true` | `AGENT_MCP_ENABLED` | the MCP endpoint |
 | `mcp.path` | `mcp` | | the endpoint path; `mcp/{tenant}` with workspaces |
@@ -110,7 +111,7 @@ Agents::enteringTenant(fn (Team $team): ?Closure => ...);
 | `tenantUsing(fn (): ?Model)` | how the current workspace is found; unregistered, the app is one workspace |
 | `enteringTenant(fn (Model $tenant): ?Closure)` | what a worker or an MCP request does on entering a workspace; the returned closure runs on leaving |
 
-It also reads back what the app told the package: `name()`, `tenant()`, `inPanel()`, `toolClasses()`, `agentClass()`, `serverClass()`, `resourceClasses()`, `middleware()`, `allows($ability)`, `roleLabel()`, `credentials()`, `canManageLimits()`, and `context()` — the `AgentContext` that knows who is acting and where (`Support\Context\LaravelContext`, or the Filament plugin's `FilamentContext` in a panel). Tools use it; your own code may too.
+It also reads back what the app told the package: `name()`, `tenant()`, `inPanel()`, `toolClasses()`, `agentClass()`, `serverClass()`, `resourceClasses()`, `registeredResources()` (the resources with their keys), `middleware()`, `allows($ability)`, `roleLabel()`, `credentials()`, `canManageLimits()`, `tenantModelClass()`, `tenantSlugAttribute()`, `tenantResolver()`, `tenantEnterHook()`, and `context()` — the `AgentContext` that knows who is acting and where (`Support\Context\LaravelContext`, or the Filament plugin's `FilamentContext` in a panel). Tools use it; your own code may too. `agent($pageContext, $modelKey)` builds the configured agent for a turn, the page context and the picker key applied. `agentAccess()`, `agentAccessAbility()`, `agentAccessGroup()`, `hideAskButtonOn()` and `askButtonHiddenOn()` live on the same facade but are read by the Filament plugin only.
 
 **In a Filament panel**, `AgentsPlugin::make()` has a fluent method for each of these and adds the pages; see [Filament Agents](https://packstub.dev/docs/filament-agents/configuration).
 

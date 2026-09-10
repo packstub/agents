@@ -307,6 +307,34 @@ class AgentTurns
         return max(200, (int) config('packstub-agents.chat.poll_interval', 600));
     }
 
+    public static function workerWait(): int
+    {
+        return max(1, (int) config('packstub-agents.chat.worker_wait', 10));
+    }
+
+    /**
+     * A turn handed to the queue that no worker has taken for chat.worker_wait seconds: the usual reason an answer
+     * never starts on a fresh install, so the status line names it. The sync driver runs the job inside the request
+     * and never waits.
+     */
+    public function awaitingWorker(AgentTurn $turn): bool
+    {
+        return $turn->status === AgentTurn::PENDING
+            && config('packstub-agents.chat.driver', 'queue') === 'queue'
+            && $turn->updated_at !== null
+            && $turn->updated_at->lte(now()->subSeconds(self::workerWait()));
+    }
+
+    /** The status line for an active turn: what the job last reported, "Thinking…" before it did, the worker hint when none took it. */
+    public function statusText(AgentTurn $turn): string
+    {
+        if ($this->awaitingWorker($turn)) {
+            return __('No queue worker has taken this turn yet. Run php artisan queue:work, or set AGENT_TURN_DRIVER=sync to answer inside the request.');
+        }
+
+        return $turn->status_text ?? __('Thinking…');
+    }
+
     /** The person the turn belongs to, from the panel's guard. */
     /** The person who asked: the signed-in one when it is them, otherwise retrieved through the guard the turn was asked on. */
     public function participant(AgentTurn $turn): ?object

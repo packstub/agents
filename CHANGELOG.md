@@ -2,6 +2,13 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.1.0 — 2026-09-10
+
+### Added
+
+- **A proposed call as a question.** `AgentTool::describe(array $arguments): ?string` lets a write tool phrase its own calls ("Confirm order RO-00016 for Acme?"); `ApprovableTool::question($tool, $arguments)` returns that sentence, or the tool's title and the first scalar argument when the tool has no `describe()`, and `ApprovableTool` passes it as the approval's reason, so the pending approval stored by laravel/ai carries the sentence a client shows. Filament Agents 1.8 renders the proposal with it.
+- **A missing worker is named.** A turn handed to the queue that no worker takes within `chat.worker_wait` seconds (`AGENT_WORKER_WAIT`, 10) gets a status line that says so, with the command to run or the sync driver to set, instead of "Thinking…" until `chat.job_timeout`. `AgentTurns::statusText($turn)` gives a chat surface the line the poll endpoint returns; `awaitingWorker($turn)` the bare check.
+
 ## 1.0.0 — 2026-09-09
 
 The engine of [packstub/filament-agents](https://github.com/packstub/filament-agents) 1.6, extracted into its own package so a plain Laravel app can install it without Filament. Same `Packstub\Agents\` namespace, same `config/packstub-agents.php` and environment variables, same migration file names, same class names: a panel app installs `packstub/filament-agents` ^1.7, which requires this package, and has nothing to run.
@@ -12,7 +19,7 @@ The engine of [packstub/filament-agents](https://github.com/packstub/filament-ag
 
 - **Writes are proposals.** A tool without `#[IsReadOnly]` is wrapped as an `ApprovableTool` for the agent, so laravel/ai pauses the turn until the person approves or rejects it; over MCP it needs a write token and then runs directly with the person's role.
 
-- **MCP over HTTP.** `POST /mcp` behind `throttle`, `auth:sanctum` and `AuthenticateAgent`, registered once the app named its server. Sanctum tokens carry `read` / `write` abilities, `tool:{name}` scopes that limit a token to named tools, `tenant:{slug}` that binds it to a workspace, and an optional expiry; a read token cannot run write tools, a scoped token sees only its tools. `AgentTool::tokenRefusal()`, `accessToken()`, `tokenTools()` and `tokenIsScoped()` expose the checks to the app's own tools.
+- **MCP over HTTP.** `POST /mcp` behind `throttle`, `auth:sanctum` and `AuthenticateAgent`, registered whenever `mcp.enabled` is on (the package's own server until the app names one). Sanctum tokens carry `read` / `write` abilities, `tool:{name}` scopes that limit a token to named tools, `tenant:{slug}` that binds it to a workspace, and an optional expiry; a read token cannot run write tools, a scoped token sees only its tools. `AgentTool::tokenRefusal()`, `accessToken()`, `tokenTools()` and `tokenIsScoped()` expose the checks to the app's own tools.
 
 - **Queued turns with a record.** `AgentTurns::enqueue()` and the `RunAgentTurn` job produce an answer in a worker (or inside the request with `chat.driver` = `sync`), stream it into an `agent_turns` row, honour Stop, run follow-ups in order per conversation, and keep the record when the turn ends: provider and model, tokens (prompt, completion, cache reads and writes, reasoning), tools called, duration and how it ended. `GET {chat.path}/chat/{conversation}/turn` under `chat.middleware` reads the answer so far. `log.channel` writes one line per ended turn; `chat.keep_turns_days` prunes them with `model:prune`.
 

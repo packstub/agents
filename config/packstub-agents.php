@@ -112,6 +112,9 @@ return [
         // How long one turn may run on the worker, in seconds (every tool round-trip included). A turn whose job
         // stopped writing for longer than this is shown as failed, with a Retry.
         'job_timeout' => (int) env('AGENT_JOB_TIMEOUT', 600),
+        // How long a turn may wait for a worker to take it, in seconds, before the status line says none has (with the
+        // command to run, or the sync driver). Only the queue driver waits.
+        'worker_wait' => (int) env('AGENT_WORKER_WAIT', 10),
         // How often the page asks for the answer so far while a turn runs, in milliseconds.
         'poll_interval' => (int) env('AGENT_POLL_INTERVAL', 600),
         // Without a panel, the poll endpoint (GET {path}/chat/{conversation}/turn) is registered here, under this
