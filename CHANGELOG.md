@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.1.0 — 2026-09-10
+
+### Added
+
+- **A proposed call as a question.** `AgentTool::describe(array $arguments): ?string` lets a write tool phrase its own calls ("Confirm order RO-00016 for Acme?"); `ApprovableTool::question($tool, $arguments)` returns that sentence, or the tool's title and the first scalar argument when the tool has no `describe()`, and `ApprovableTool` passes it as the approval's reason, so the pending approval stored by laravel/ai carries the sentence a client shows. Filament Agents 1.8 renders the proposal with it.
+
 ## 1.0.0 — 2026-09-09
 
 The engine of [packstub/filament-agents](https://github.com/packstub/filament-agents) 1.6, extracted into its own package so a plain Laravel app can install it without Filament. Same `Packstub\Agents\` namespace, same `config/packstub-agents.php` and environment variables, same migration file names, same class names: a panel app installs `packstub/filament-agents` ^1.7, which requires this package, and has nothing to run.

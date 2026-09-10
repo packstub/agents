@@ -1,6 +1,7 @@
 <?php
 
 use Laravel\Ai\Tools\McpServerTool;
+use Laravel\Ai\Tools\Request as AiRequest;
 use Laravel\Mcp\Request;
 use Packstub\Agents\Ai\ApprovableTool;
 use Packstub\Agents\Facades\Agents;
@@ -10,6 +11,7 @@ use Packstub\Agents\Tests\Fixtures\Abilities;
 use Packstub\Agents\Tests\Fixtures\Models\Widget;
 use Packstub\Agents\Tests\Fixtures\Tools\ListWidgets;
 use Packstub\Agents\Tests\Fixtures\Tools\RenameWidget;
+use Packstub\Agents\Tests\Fixtures\Tools\RetireWidget;
 use Packstub\Agents\Tests\Fixtures\WidgetAgent;
 use Packstub\Agents\Tests\Fixtures\WidgetResource;
 use Packstub\Agents\Tests\Fixtures\WidgetServer;
@@ -39,6 +41,21 @@ it('reads the tool list from the server class and wraps writes for approval', fu
         ->and($tools->get('rename-widget'))->toBeInstanceOf(ApprovableTool::class)
         ->and($tools->get('draw-chart'))->not->toBeInstanceOf(ApprovableTool::class)
         ->and($tools)->toHaveCount(3);
+});
+
+it('asks for approval with the call as a question: the tool\'s own sentence, or its title and the first argument', function () {
+    actingAs($this->user());
+
+    // A tool that describes its calls.
+    $rename = new ApprovableTool(app(RenameWidget::class));
+    $approval = $rename->shouldRequestApproval(new AiRequest(['id' => 7, 'name' => 'Alpha IV'], 'c1'));
+    expect($approval?->reason)->toBe('Rename widget #7 to Alpha IV?');
+
+    // One that does not: the title, the first scalar argument, a question mark.
+    $retire = new ApprovableTool(app(RetireWidget::class));
+    expect($retire->shouldRequestApproval(new AiRequest(['id' => 12], 'c2'))?->reason)->toBe('Retire Widget 12?')
+        ->and(ApprovableTool::question(app(RetireWidget::class), []))->toBe('Retire Widget?')
+        ->and(ApprovableTool::question(app(RetireWidget::class), ['ids' => [1, 2], 'force' => true]))->toBe('Retire Widget true?');
 });
 
 it('gives each person only the tools their abilities allow, in the list and on a direct call', function () {

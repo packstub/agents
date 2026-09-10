@@ -70,6 +70,18 @@ abstract class AgentTool extends Tool
     abstract protected function run(Request $request): array;
 
     /**
+     * A proposed call as a question the person can answer ("Confirm order RO-00016?"),
+     * shown where a write tool waits for approval. Null (the default) reads as the
+     * tool's title followed by the first argument — see ApprovableTool::question().
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    public function describe(array $arguments): ?string
+    {
+        return null;
+    }
+
+    /**
      * Why the current agent access token may not run this tool, or null when
      * it may. The in-panel chat (session auth) has no token and relies on
      * approvals instead; Sanctum's transient token for a session stands for
