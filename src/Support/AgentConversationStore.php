@@ -88,6 +88,67 @@ class AgentConversationStore extends DatabaseConversationStore
     }
 
     /**
+     * The proposals still waiting for a decision: every call a paused answer of this person listed as pending
+     * and that has no result yet, keyed by call id with its name, arguments and provider call id.
+     *
+     * @return array<string, array{name: string, arguments: array<string, mixed>, result_id: ?string}>
+     */
+    public function pendingCalls(string $conversationId, object $participant): array
+    {
+        $pending = [];
+
+        foreach ($this->pausedRows($conversationId, $participant) as $row) {
+            $resolved = collect(json_decode((string) $row->tool_results, true) ?: [])->pluck('id')->all();
+            $calls = collect(json_decode((string) $row->tool_calls, true) ?: [])->keyBy('id');
+
+            foreach (array_diff($this->pausedCallIds($row), $resolved) as $id) {
+                $pending[$id] = [
+                    'name' => (string) ($calls[$id]['name'] ?? ''),
+                    'arguments' => (array) ($calls[$id]['arguments'] ?? []),
+                    'result_id' => $calls[$id]['result_id'] ?? null,
+                ];
+            }
+        }
+
+        return $pending;
+    }
+
+    /**
+     * Decline the proposals still waiting for a decision, because the person asked something else: each pending
+     * call gets a denied result carrying $note, the way a rejection is stored. laravel/ai cannot continue a
+     * conversation over a pending call, and once the next answer had a proposal of its own, a decision on either
+     * could no longer be matched to its turn. Returns how many calls were declined.
+     */
+    public function declinePending(string $conversationId, object $participant, string $note): int
+    {
+        $pending = $this->pendingCalls($conversationId, $participant);
+
+        if ($pending === []) {
+            return 0;
+        }
+
+        $this->storeApprovalResults($conversationId, Conversation::participantType($participant), Conversation::participantKey($participant), array_map(
+            fn (string $id) => new ToolResult($id, $pending[$id]['name'], $pending[$id]['arguments'], $note, $pending[$id]['result_id'], true),
+            array_keys($pending),
+        ));
+
+        return count($pending);
+    }
+
+    /** The person's answers that paused for a decision, newest first. */
+    protected function pausedRows(string $conversationId, object $participant): Collection
+    {
+        return $this->table($this->messagesTable())
+            ->where('conversation_id', $conversationId)
+            ->where('participant_type', Conversation::participantType($participant))
+            ->where('participant_id', Conversation::participantKey($participant))
+            ->where('role', 'assistant')
+            ->whereNotNull('approval_state')
+            ->orderByDesc('id')
+            ->get();
+    }
+
+    /**
      * Store what the assistant had written when the person stopped it. laravel/ai stores an answer only once the
      * stream has ended, so a stopped turn stores its own, marked in meta so the page can say so.
      */

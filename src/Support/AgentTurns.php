@@ -34,6 +34,21 @@ class AgentTurns
     {
         $runtime = AgentRuntime::capture();
 
+        // A decision while another one waits (an answer that proposed two changes, decided one at a time): the
+        // decisions join the waiting turn, which starts once every proposal of that answer has one.
+        if (isset($input['decisions'])) {
+            $held = AgentTurn::query()->forConversation($conversationId)->where('status', AgentTurn::QUEUED)
+                ->where('participant_type', Conversation::participantType($participant))->where('participant_id', Conversation::participantKey($participant))
+                ->orderBy('id')->get()->first(fn (AgentTurn $t) => $t->decisions() !== null);
+
+            if ($held) {
+                $held->forceFill(['input' => ['decisions' => [...$held->decisions(), ...$input['decisions']]]])->save();
+                $this->startNext($conversationId);
+
+                return $held->refresh();
+            }
+        }
+
         $turn = AgentTurn::query()->create([
             'id' => (string) Str::uuid7(),
             'conversation_id' => $conversationId,
@@ -83,12 +98,43 @@ class AgentTurns
             return null;
         }
 
+        $participant = $this->participant($turn);
+        $store = app(AgentConversationStore::class);
+
         if ($turn->prompt() !== null && $turn->message_id === null) {
-            $participant = $this->participant($turn);
-            $messageId = $participant
-                ? app(AgentConversationStore::class)->storeQuestion($conversationId, $participant, Agents::agentClass(), $turn->prompt())
-                : null;
+            $messageId = null;
+
+            if ($participant) {
+                // Over a proposal still waiting for a decision, the words decide: "Yes, go ahead." approves every pending
+                // proposal and "No" rejects them, the reply recorded like any question and the turn run as that decision.
+                // Anything else is a question of its own: the proposals are declined first, with a note the model reads.
+                $pending = $store->pendingCalls($conversationId, $participant);
+                $decision = $pending !== [] ? self::decisionInText($turn->prompt()) : null;
+
+                if ($pending !== [] && $decision === null) {
+                    $store->declinePending($conversationId, $participant, self::supersededResult());
+                }
+
+                $messageId = $store->storeQuestion($conversationId, $participant, Agents::agentClass(), $turn->prompt());
+
+                if ($decision !== null) {
+                    $turn->forceFill(['input' => ['decisions' => array_fill_keys(array_keys($pending), $decision), 'said' => $turn->prompt()]]);
+                }
+            }
+
             $turn->forceFill(['message_id' => $messageId])->save();
+        }
+
+        // A decision that does not cover every proposal waiting in that answer is held (queued again) until the
+        // others are decided: laravel/ai applies the decisions of one pause together.
+        if ($turn->decisions() !== null && $participant) {
+            $missing = array_diff_key($store->pendingCalls($conversationId, $participant), $turn->decisions());
+
+            if ($missing !== []) {
+                $turn->forceFill(['status' => AgentTurn::QUEUED])->save();
+
+                return null;
+            }
         }
 
         $job = new RunAgentTurn($turn->id, [
@@ -295,6 +341,59 @@ class AgentTurns
     public static function rejectionResult(): string
     {
         return 'The person rejected this change, so it did not run. Do not retry it or propose it again unless asked; acknowledge in one sentence and, if useful, ask what they would like instead.';
+    }
+
+    /**
+     * A short reply that decides the pending proposals in words: true for "Yes, go ahead." (and its kin in the
+     * languages the UI ships), false for "No" / "Cancel", null when the reply is a question of its own. Only a
+     * reply of a few words counts; a leading yes or no decides one that goes on ("No, show me the order first").
+     */
+    public static function decisionInText(string $text): ?bool
+    {
+        $t = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[\p{P}\p{S}]+/u', ' ', Str::lower($text))));
+
+        if ($t === '' || count(explode(' ', $t)) > 6) {
+            return null;
+        }
+
+        $yes = [
+            'yes', 'yes please', 'yes go ahead', 'go ahead', 'ok', 'okay', 'sure', 'yep', 'yeah', 'approve', 'approved', 'approve it', 'confirm', 'confirmed', 'confirm it',
+            'do it', 'please do', 'proceed', 'go for it', 'sounds good', 'yes do it', 'yes confirm', 'yes confirm it', 'yes approve', 'yes please go ahead',
+            'ja', 'ja bitte', 'mach das', 'bestätigen', 'bestätige', 'genehmigen', 'genehmigt', 'weiter', 'los', 'in ordnung',
+            'sí', 'si', 'sí por favor', 'si por favor', 'adelante', 'confirmar', 'confírmalo', 'confirmalo', 'aprobar', 'vale', 'hazlo', 'de acuerdo',
+            'da', 'da te rog', 'confirmă', 'confirma', 'aprobă', 'aproba', 'mergi mai departe', 'fă o', 'fa o', 'de acord',
+            'да', 'давай', 'подтверди', 'подтверждаю', 'одобряю', 'ок', 'хорошо', 'да давай',
+        ];
+        $no = [
+            'no', 'nope', 'no thanks', 'no thank you', 'reject', 'rejected', 'reject it', 'cancel', 'stop', 'never mind', 'do not', 'dont', 'don t', 'leave it', 'not now', 'no do not',
+            'nein', 'nein danke', 'abbrechen', 'ablehnen', 'nicht', 'lass es', 'lieber nicht',
+            'no gracias', 'cancelar', 'rechazar', 'no lo hagas', 'mejor no',
+            'nu', 'nu mulțumesc', 'nu multumesc', 'anulează', 'anuleaza', 'respinge', 'nu acum', 'mai bine nu',
+            'нет', 'отмена', 'отклонить', 'не надо', 'не нужно', 'нет спасибо',
+        ];
+
+        if (in_array($t, $no, true)) {
+            return false;
+        }
+        if (in_array($t, $yes, true)) {
+            return true;
+        }
+
+        $first = explode(' ', $t)[0];
+        if (in_array($first, ['no', 'nope', 'nein', 'nu', 'нет', 'cancel', 'reject', 'stop', 'never'], true)) {
+            return false;
+        }
+        if (in_array($first, ['yes', 'yep', 'yeah', 'sure', 'ja', 'si', 'sí', 'da', 'да', 'ok', 'okay', 'approve', 'confirm', 'proceed'], true)) {
+            return true;
+        }
+
+        return null;
+    }
+
+    /** What the model reads in place of a proposal's result when the person asked something else instead of deciding on it. */
+    public static function supersededResult(): string
+    {
+        return 'Not decided: the person asked something else instead of approving or rejecting this, so it did not run. Answer the new question; propose it again only if they ask for it.';
     }
 
     public static function jobTimeout(): int
