@@ -4,6 +4,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
+use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Prompts\AgentPrompt;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
@@ -244,4 +246,99 @@ it('scaffolds the agent with a hint for a service provider, not a panel', functi
     } finally {
         File::delete($path);
     }
+});
+
+// Two proposals in one answer, the way a model that confirms two orders at once pauses: what a typed reply and
+// one-at-a-time decisions do to them.
+function pausedAnswer(object $user, string $conversation): ConversationMessage
+{
+    return ConversationMessage::query()->create([
+        'id' => (string) Str::uuid7(), 'conversation_id' => $conversation, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id,
+        'agent' => WidgetAgent::class, 'role' => 'assistant', 'content' => '', 'attachments' => [], 'usage' => [], 'meta' => [],
+        'tool_calls' => [
+            ['id' => 'c1', 'name' => 'retire-widget', 'arguments' => ['id' => 1], 'result_id' => 'call_1'],
+            ['id' => 'c2', 'name' => 'retire-widget', 'arguments' => ['id' => 2], 'result_id' => 'call_2'],
+        ],
+        'tool_results' => [], 'approval_state' => ['pending' => ['c1' => 'Retire widget Alpha?', 'c2' => 'Retire widget Beta?']],
+    ]);
+}
+
+it('takes a typed "Yes, go ahead." over pending proposals as their approval, and "no" as their rejection', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    $paused = pausedAnswer($user, $conversation);
+    expect(array_keys($store->pendingCalls($conversation, $user)))->toBe(['c1', 'c2']);
+
+    // The reply is recorded like a question and the turn runs as the decision on both proposals.
+    $turn = $turns->enqueue($conversation, $user, ['prompt' => 'Yes, go ahead.'], null, 'auto', null);
+    expect($turn->status)->toBe(AgentTurn::PENDING)
+        ->and($turn->prompt())->toBeNull()
+        ->and($turn->decisions())->toBe(['c1' => true, 'c2' => true])
+        ->and($turn->input['said'])->toBe('Yes, go ahead.')
+        ->and(ConversationMessage::query()->find($turn->message_id)?->content)->toBe('Yes, go ahead.')
+        ->and($paused->fresh()->tool_results)->toBe([]);
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $turn->id);
+
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $conversation);
+    $turn = $turns->enqueue($conversation, $user, ['prompt' => 'No, leave them.'], null, 'auto', null);
+    expect($turn->decisions())->toBe(['c1' => false, 'c2' => false]);
+
+    foreach (['Yes, go ahead.' => true, 'yes please' => true, 'Go ahead!' => true, 'Ok' => true, 'Sure, confirm it.' => true, 'Da, te rog.' => true, 'Ja, mach das.' => true, 'Sí' => true, 'да' => true,
+        'No' => false, 'no thanks' => false, 'Cancel' => false, 'Nein, lieber nicht.' => false, 'Nu acum' => false, 'нет' => false,
+        'What about Beta?' => null, 'Show me the orders first' => null, 'yes and also retire Gamma and Delta and Epsilon please' => null, '' => null] as $text => $decision) {
+        expect(AgentTurns::decisionInText($text))->toBe($decision, $text);
+    }
+});
+
+it('declines the pending proposals with a note when the person asks something else instead', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+    $store = app(AgentConversationStore::class);
+
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    $paused = pausedAnswer($user, $conversation);
+
+    $turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => 'What about Gamma?'], null, 'auto', null);
+
+    $paused->refresh();
+    expect($turn->prompt())->toBe('What about Gamma?')
+        ->and($turn->status)->toBe(AgentTurn::PENDING)
+        ->and(collect($paused->tool_results)->pluck('denied', 'id')->all())->toBe(['c1' => true, 'c2' => true])
+        ->and($paused->tool_results[0]['result'])->toBe(AgentTurns::supersededResult())
+        ->and($paused->approval_state['pending'])->toBe([])
+        ->and($store->pendingCalls($conversation, $user))->toBe([])
+        ->and($store->declinePending($conversation, $user, 'again'))->toBe(0);
+});
+
+it('holds a decision on one of two proposals until the other is decided, then runs both together', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $conversation);
+
+    // Approve on Alpha: nothing runs yet, laravel/ai applies the decisions of one pause together.
+    $first = $turns->enqueue($conversation, $user, ['decisions' => ['c1' => true]], null, 'auto', null);
+    expect($first->status)->toBe(AgentTurn::QUEUED)
+        ->and($turns->active($conversation))->toBeNull()
+        ->and($turns->queued($conversation)->pluck('id')->all())->toBe([$first->id]);
+    Queue::assertNothingPushed();
+
+    // Reject on Beta joins the waiting turn, which now starts with both.
+    $second = $turns->enqueue($conversation, $user, ['decisions' => ['c2' => false]], null, 'auto', null);
+    expect($second->id)->toBe($first->id)
+        ->and($second->status)->toBe(AgentTurn::PENDING)
+        ->and($second->decisions())->toBe(['c1' => true, 'c2' => false])
+        ->and(AgentTurn::query()->forConversation($conversation)->count())->toBe(1);
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $first->id);
 });

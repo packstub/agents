@@ -2,6 +2,16 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.2.1 — 2026-09-15
+
+### Changed
+
+- **Docs.** The installation page shows the OpenRouter key next to the other providers. The configuration page's `models` section is a field table and two worked examples: a provider without entries of its own (OpenRouter, pinned to Mercury 2.5, GLM 5.3 Flash and DeepSeek 4.1 Flash) and a mixed catalog (Claude, Gemini Flash and a local Ollama model, with the keys and the failover rules as a list); the assistant page points there instead of repeating the rules.
+
+### Fixed
+
+- **A question over a pending proposal.** Asking something else while a proposal waited for Approve / Reject left the conversation with two proposals and no decision that could be applied ("Approval decisions do not match the pending tool calls"): laravel/ai cannot continue over a pending call, and the next answer proposed the same change again. A question now declines what is still pending first, recorded like a rejection with a note the model reads (`AgentTurns::supersededResult()`), so the chat shows the earlier proposal as declined and the new answer stands on its own.
+
 ## 1.2.0 — 2026-09-10
 
 ### Added

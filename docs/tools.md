@@ -86,6 +86,12 @@ public function describe(array $arguments): ?string
 
 Keep it to one sentence about the effect, in the person's words rather than the tool's: the arguments stay visible under the question for whoever wants the exact call.
 
+#### Decisions in words, and two proposals at once
+
+A turn that arrives as a question while a proposal waits for a decision is read first: a short reply that says yes ("Yes, go ahead.", "ok", "confirm it", and the same in German, Spanish, Romanian and Russian; `AgentTurns::decisionInText()`) approves every pending proposal and one that says no rejects them, the reply recorded like any question and the turn run as that decision. Anything else is a question of its own: the pending proposals are declined with `AgentTurns::supersededResult()` as their result, so the history never carries a call without a result (laravel/ai cannot continue over one, and a later decision could no longer be matched), and the new question is answered.
+
+An answer that proposed two changes pauses on both. laravel/ai applies the decisions of one pause together, so a decision on one of them is held: the turn stays queued with what was decided so far, later decisions join it (`AgentTurns::enqueue()` merges them), and it starts once every proposal of that answer has one.
+
 ## Errors
 
 Exceptions thrown from `run()` are handed back to the model as tool errors, never to the person as a crash:
