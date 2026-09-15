@@ -6,7 +6,7 @@ All notable changes to `packstub/agents` are documented here.
 
 ### Changed
 
-- **Docs.** The installation page shows the OpenRouter key next to the other providers, and the configuration page pins three OpenRouter models (Mercury 2.5, GLM 5.3 Flash, DeepSeek 4.1 Flash) as the example of a provider without entries of its own.
+- **Docs.** The installation page shows the OpenRouter key next to the other providers. The configuration page's `models` section is a field table and two worked examples: a provider without entries of its own (OpenRouter, pinned to Mercury 2.5, GLM 5.3 Flash and DeepSeek 4.1 Flash) and a mixed catalog (Claude, Gemini Flash and a local Ollama model, with the keys and the failover rules as a list); the assistant page points there instead of repeating the rules.
 
 ### Fixed
 
