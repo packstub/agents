@@ -11,6 +11,7 @@ use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Models\ConversationSummary;
 use Packstub\Agents\Support\AgentChat;
 use Packstub\Agents\Support\AgentConversationStore;
+use Packstub\Agents\Support\AgentModels;
 use Packstub\Agents\Support\AgentTokens;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Tests\Fixtures\Abilities;
@@ -522,4 +523,25 @@ it('mints with the defaults, fills the tenant into the endpoint and falls back o
     expect($token->name)->toBe('Desktop')
         ->and($token->abilities)->toBe(['read'])
         ->and($token->expires_at)->toBeNull();
+});
+
+it('says whose chat it is and on what, reads an empty conversation, and forgets the live state on refresh', function () {
+    $user = $this->user();
+    actingAs($user);
+    $id = conversationWith($user, []);
+
+    $chat = AgentChat::for($user, $id, 'deep', 'widgets/1');
+    expect($chat->participant()->is($user))->toBeTrue()
+        ->and($chat->model())->toBe('deep')
+        ->and($chat->context())->toBe('widgets/1')
+        ->and(AgentChat::for($user)->model())->toBe(AgentModels::current())
+        ->and($chat->messages())->toBeEmpty()
+        ->and($chat->idle())->toBeTrue()
+        ->and(AgentChat::cutShortText('content_filter'))->toBe(__('The provider\'s content filter stopped the answer.'));
+
+    // The live state is read once per request; a turn that arrived since shows after refresh().
+    AgentTurn::query()->create(['id' => (string) Str::uuid7(), 'conversation_id' => $id, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id, 'status' => AgentTurn::QUEUED, 'input' => ['prompt' => 'Later']]);
+    expect($chat->idle())->toBeTrue()
+        ->and($chat->refresh()->idle())->toBeFalse()
+        ->and($chat->live()['queued'][0]['text'])->toBe('Later');
 });
