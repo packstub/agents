@@ -4,6 +4,7 @@ namespace Packstub\Agents\Support;
 
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Laravel\Ai\AiManager;
@@ -28,7 +29,7 @@ use Throwable;
  */
 class AgentChat
 {
-    /** @var array{active: ?array, queued: list<array>, ended: ?array}|null */
+    /** @var array{active: ?array, queued: list<array>, held: array<string, bool>, ended: ?array}|null */
     protected ?array $live = null;
 
     public function __construct(
@@ -38,10 +39,21 @@ class AgentChat
         protected ?string $context = null,
     ) {}
 
-    /** A chat for the person, on one of their conversations or a new one. */
+    /**
+     * A chat for the person, on one of their conversations or a new one. A conversation that is not the
+     * person's — another person's, or none — is not found, so a surface can pass the id from the request as is.
+     *
+     * @throws ModelNotFoundException
+     */
     public static function for(object $participant, ?string $conversation = null, ?string $model = null, ?string $context = null): static
     {
-        return new static($participant, $conversation, $model ?? AgentModels::current(), $context);
+        $chat = new static($participant, $conversation, $model ?? AgentModels::current(), $context);
+
+        if ($conversation !== null && ! $chat->owns($conversation)) {
+            throw (new ModelNotFoundException)->setModel(Conversation::class, [$conversation]);
+        }
+
+        return $chat;
     }
 
     /** The conversation id, null until the first question of a new chat is sent. */
@@ -142,8 +154,7 @@ class AgentChat
         $feedback = AgentMessageFeedback::query()->where('user_id', $this->participant->getKey())->pluck('rating', 'message_id');
         $writeTools = self::writeTools();
         $idle = $this->idle();
-        // Decisions waiting for the other proposal of the same answer (the engine holds them until every proposal has one).
-        $held = app(AgentTurns::class)->queued($this->conversation)->first(fn (AgentTurn $t) => $t->decisions() !== null)?->decisions() ?? [];
+        $held = $this->live()['held']; // call id => approved, for decisions waiting for the other proposal of the same answer
 
         $list = ConversationMessage::query()
             ->where('conversation_id', $this->conversation)
@@ -220,10 +231,11 @@ class AgentChat
     }
 
     /**
-     * The turn that runs on this conversation, the questions waiting behind it, and how the last turn ended
-     * when the last question has no answer.
+     * The turn that runs on this conversation, the questions waiting behind it, the decisions (call id => approved)
+     * held until the other proposals of the same answer are decided, and how the last turn ended when the last
+     * question has no answer.
      *
-     * @return array{active: ?array{id: string, status: string, statusText: string, html: string}, queued: list<array{id: string, text: string}>, ended: ?array{status: string, reason: ?string, error: ?string, decision: bool}}
+     * @return array{active: ?array{id: string, status: string, statusText: string, html: string}, queued: list<array{id: string, text: string}>, held: array<string, bool>, ended: ?array{status: string, reason: ?string, error: ?string, decision: bool}}
      */
     public function live(): array
     {
@@ -232,13 +244,14 @@ class AgentChat
         }
 
         if (! $this->conversation) {
-            return $this->live = ['active' => null, 'queued' => [], 'ended' => null];
+            return $this->live = ['active' => null, 'queued' => [], 'held' => [], 'ended' => null];
         }
 
         $turns = app(AgentTurns::class);
         $turns->reconcile($this->conversation);
         $active = $turns->active($this->conversation);
         $latest = $turns->latest($this->conversation);
+        $queued = $turns->queued($this->conversation);
 
         return $this->live = [
             'active' => $active ? [
@@ -247,17 +260,21 @@ class AgentChat
                 'statusText' => $turns->statusText($active), // what the job reports, or the missing-worker hint
                 'html' => filled($active->text) ? Markdown::render((string) $active->text) : '',
             ] : null,
-            'queued' => $turns->queued($this->conversation)->filter(fn (AgentTurn $t) => $t->prompt() !== null)->map(fn (AgentTurn $t) => ['id' => $t->id, 'text' => (string) $t->prompt()])->values()->all(),
+            'queued' => $queued->filter(fn (AgentTurn $t) => $t->prompt() !== null)->map(fn (AgentTurn $t) => ['id' => $t->id, 'text' => (string) $t->prompt()])->values()->all(),
+            'held' => $queued->first(fn (AgentTurn $t) => $t->decisions() !== null)?->decisions() ?? [],
             'ended' => $latest && in_array($latest->status, [AgentTurn::FAILED, AgentTurn::STOPPED], true) ? ['status' => $latest->status, 'reason' => $latest->finish_reason, 'error' => $latest->error, 'decision' => $latest->decisions() !== null] : null,
         ];
     }
 
-    /** Nothing runs or waits on this conversation. */
+    /**
+     * Nothing runs or waits on this conversation: no turn in progress, no question in the line, no decision held
+     * for the other proposals of its answer. Only another decision may be made while one is held (decide()).
+     */
     public function idle(): bool
     {
         $live = $this->live();
 
-        return $live['active'] === null && $live['queued'] === [];
+        return $live['active'] === null && $live['queued'] === [] && $live['held'] === [];
     }
 
     /** Forget the live state, so the next read hits the database (after a turn was queued, removed or edited). */
@@ -300,6 +317,10 @@ class AgentChat
      */
     public function turnTotals(): array
     {
+        if (! $this->conversation) {
+            return ['count' => 0, 'tokens_in' => 0, 'tokens_out' => 0, 'tool_calls' => 0, 'duration_ms' => 0, 'last_tokens_in' => null];
+        }
+
         $turns = AgentTurn::query()
             ->forConversation($this->conversation)
             ->whereNotIn('status', AgentTurn::OPEN)
@@ -369,10 +390,15 @@ class AgentChat
         return $this->startTurn(['prompt' => $prompt]);
     }
 
-    /** Approve or reject a pending proposal: the decision turn (held while the other proposals of the answer wait). */
+    /**
+     * Approve or reject a pending proposal: the decision turn, held while the other proposals of the same answer
+     * wait for theirs (a second decision joins the held turn), refused while an answer runs or a question waits.
+     */
     public function decide(string $callId, bool $approve): ?AgentTurn
     {
-        if (! $this->conversation || ! $this->idle()) {
+        $live = $this->live();
+
+        if (! $this->conversation || $live['active'] !== null || $live['queued'] !== []) {
             return null;
         }
 

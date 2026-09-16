@@ -677,9 +677,10 @@ class AgentConversationStore extends DatabaseConversationStore
         return $message instanceof Message && $message->role === MessageRole::User;
     }
 
-    /** Delete a conversation with its messages and its rolling summary; its turns stay in the operator's log. */
+    /** Delete a conversation with its messages, their ratings and its rolling summary; its turns stay in the operator's log. */
     public function deleteConversation(string $conversationId): void
     {
+        AgentMessageFeedback::query()->whereIn('message_id', ConversationMessage::query()->where('conversation_id', $conversationId)->select('id'))->delete();
         ConversationMessage::query()->where('conversation_id', $conversationId)->delete();
         ConversationSummary::query()->where('conversation_id', $conversationId)->delete();
         Conversation::query()->whereKey($conversationId)->delete();

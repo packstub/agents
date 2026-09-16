@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Laravel\Ai\Models\Conversation;
@@ -74,7 +75,7 @@ it('answers a question into a persisted conversation, rates the answer, and keep
         ->and($messages[1]['html'])->toContain('Two widgets are live')
         ->and($messages[1]['regenerable'])->toBeTrue()
         ->and($messages[1]['rating'])->toBeNull()
-        ->and($chat->live())->toBe(['active' => null, 'queued' => [], 'ended' => null]);
+        ->and($chat->live())->toBe(['active' => null, 'queued' => [], 'held' => [], 'ended' => null]);
 
     $history = $chat->history();
     expect($history['turns']['count'])->toBe(1)
@@ -85,8 +86,11 @@ it('answers a question into a persisted conversation, rates the answer, and keep
     expect(AgentMessageFeedback::query()->where('message_id', $messages[1]['id'])->value('rating'))->toBe('up')
         ->and($chat->messages()[1]['rating'])->toBe('up');
 
-    // Another person never sees this conversation; the same person opens it again by id.
-    expect(AgentChat::for($this->user())->owns($chat->conversation()))->toBeFalse()
+    // Another person never sees this conversation: opening it by id is "not found", as is an id that does not exist.
+    $other = $this->user();
+    expect(AgentChat::for($other)->owns($chat->conversation()))->toBeFalse()
+        ->and(fn () => AgentChat::for($other, $chat->conversation()))->toThrow(ModelNotFoundException::class)
+        ->and(fn () => AgentChat::for($user, (string) Str::uuid()))->toThrow(ModelNotFoundException::class)
         ->and(AgentChat::for($user)->owns($chat->conversation()))->toBeTrue()
         ->and(AgentChat::for($user, $chat->conversation())->messages())->toHaveCount(2);
 });
@@ -171,10 +175,22 @@ it('shows a decision on one of two proposals as held on its row until the other 
     Queue::assertNothingPushed();
     expect($turn->status)->toBe(AgentTurn::QUEUED);
 
-    $tools = AgentChat::for($user, $id)->messages()->last()['tools'];
-    expect($tools[0])->toMatchArray(['id' => 'c1', 'pending' => true, 'held' => true])
-        ->and($tools[1])->toMatchArray(['id' => 'c2', 'pending' => true, 'held' => null])
-        ->and(AgentChat::for($user, $id)->live()['queued'])->toBe([]); // a held decision is not a queued question
+    $chat = AgentChat::for($user, $id);
+    $messages = $chat->messages();
+    expect($messages->last()['tools'][0])->toMatchArray(['id' => 'c1', 'pending' => true, 'held' => true])
+        ->and($messages->last()['tools'][1])->toMatchArray(['id' => 'c2', 'pending' => true, 'held' => null])
+        ->and($chat->live())->toMatchArray(['queued' => [], 'held' => ['c1' => true]]) // a held decision is not a queued question
+        ->and($chat->idle())->toBeFalse();
+
+    // While the decision is held the answer it belongs to must not move: no edit, no regenerate, no retry, no compress.
+    expect($messages[0]['editable'])->toBeFalse()
+        ->and($messages->last()['regenerable'])->toBeFalse()
+        ->and($chat->regenerate())->toBeNull()
+        ->and($chat->resend('Rename only Alpha'))->toBeNull()
+        ->and($chat->retry())->toBeNull()
+        ->and($chat->compress())->toBeFalse()
+        ->and(ConversationMessage::query()->where('conversation_id', $id)->count())->toBe(2)
+        ->and(AgentTurn::query()->forConversation($id)->count())->toBe(1);
 
     // The second decision joins the waiting turn, which starts with both.
     expect(AgentChat::for($user, $id)->decide('c2', false)?->decisions())->toBe(['c1' => true, 'c2' => false]);
@@ -304,12 +320,14 @@ it('deletes a conversation with its messages and summary, keeping its turns in t
     $chat = AgentChat::for($user);
     $chat->send('How many?');
     $id = $chat->conversation();
+    $chat->rate($chat->messages()->last()['id'], 'up');
     ConversationSummary::query()->create(['conversation_id' => $id, 'content' => 'A count.', 'through_message_id' => null]);
 
     app(AgentConversationStore::class)->deleteConversation($id);
 
     expect(Conversation::query()->whereKey($id)->exists())->toBeFalse()
         ->and(ConversationMessage::query()->where('conversation_id', $id)->count())->toBe(0)
+        ->and(AgentMessageFeedback::query()->where('user_id', $user->id)->count())->toBe(0)
         ->and(ConversationSummary::query()->where('conversation_id', $id)->count())->toBe(0)
         ->and(AgentTurn::query()->forConversation($id)->count())->toBe(1);
 });
@@ -328,9 +346,13 @@ it('mints an access token narrowed to the tools the role allows, the workspace a
         ->and(AgentTokens::mcpUrl())->toBe(url('/mcp'))
         ->and(AgentTokens::serverSlug())->toBe('ask-widgets');
 
-    // A write tool is only scoped on a token that may write; a tool the role does not allow is never scoped.
+    // A write tool is only scoped on a token that may write; a tool the role does not allow is never scoped. Naming
+    // only tools that cannot be scoped refuses the token: one without a scope would see every tool.
     expect(AgentTokens::abilities(['read'], ['rename-widget', 'list-widgets', 'nope']))->toBe(['read', 'tool:list-widgets'])
-        ->and(AgentTokens::abilities(['read', 'write'], ['rename-widget'], 'acme'))->toBe(['read', 'write', 'tool:rename-widget', 'tenant:acme']);
+        ->and(AgentTokens::abilities(['read', 'write'], ['rename-widget'], 'acme'))->toBe(['read', 'write', 'tool:rename-widget', 'tenant:acme'])
+        ->and(fn () => AgentTokens::abilities(['read'], ['rename-widget']))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => AgentTokens::mint($user, 'Bot', ['read', 'write'], ['nope']))->toThrow(InvalidArgumentException::class)
+        ->and($user->tokens()->count())->toBe(0);
 
     $plain = AgentTokens::mint($user, str_repeat('Claude Code on my laptop ', 4), ['read', 'write'], ['rename-widget'], '30', 'acme');
     $token = $user->tokens()->sole();
@@ -340,11 +362,11 @@ it('mints an access token narrowed to the tools the role allows, the workspace a
         ->and($token->abilities)->toBe(['read', 'write', 'tool:rename-widget', 'tenant:acme'])
         ->and($token->expires_at?->isSameDay(now()->addDays(30)))->toBeTrue();
 
-    // A role without the write ability sees no write tool to scope to.
+    // A role without the write ability sees no write tool to scope to, and cannot mint a token named after one.
     Abilities::$allowed = ['widgets.view'];
     expect(AgentTokens::availableTools())->not->toHaveKey('rename-widget')
         ->and(AgentTokens::toolTitles())->toHaveKey('rename-widget')
-        ->and(AgentTokens::abilities(['read', 'write'], ['rename-widget']))->toBe(['read', 'write']);
+        ->and(fn () => AgentTokens::abilities(['read', 'write'], ['rename-widget']))->toThrow(InvalidArgumentException::class);
 });
 
 it('labels a turn status', function () {
@@ -486,6 +508,7 @@ it('does nothing without a conversation or with the agent off, and counts any ot
         ->and($chat->editQueued('t1'))->toBeNull()
         ->and($chat->compress())->toBeFalse()
         ->and($chat->continueInNew())->toBeNull()
+        ->and($chat->turnTotals()['count'])->toBe(0)
         ->and(AgentTurn::query()->count())->toBe(0);
 
     WidgetAgent::fake(['Two.']);
@@ -513,7 +536,8 @@ it('mints with the defaults, fills the tenant into the endpoint and falls back o
 
     expect(AgentTokens::mcpUrl('acme'))->toBe(url('/mcp/acme'))
         ->and(AgentTokens::serverSlug())->toBe('assistant')
-        ->and(AgentTokens::expiresAt('soon'))->toBeNull()
+        ->and(fn () => AgentTokens::expiresAt('soon'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => AgentTokens::expiresAt('0'))->toThrow(InvalidArgumentException::class)
         ->and(AgentTokens::abilities(['admin', 'write'], ['list-widgets']))->toBe(['write', 'tool:list-widgets'])
         ->and(AgentTokens::abilities(['read'], [], ''))->toBe(['read']);
 

@@ -4,6 +4,7 @@ namespace Packstub\Agents\Support;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Laravel\Mcp\Server\Tool;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Mcp\AgentTool;
@@ -82,31 +83,55 @@ class AgentTokens
         ];
     }
 
-    /** When a token with that expiry choice expires: null for "never". */
+    /**
+     * When a token with that expiry choice expires: null for "never", else that many days from now. Anything else
+     * is refused rather than read as "never".
+     *
+     * @throws InvalidArgumentException
+     */
     public static function expiresAt(string $expires): ?Carbon
     {
-        return $expires !== 'never' && ctype_digit($expires) ? now()->addDays((int) $expires) : null;
+        if ($expires === 'never') {
+            return null;
+        }
+
+        if (! ctype_digit($expires) || (int) $expires < 1) {
+            throw new InvalidArgumentException("Token expiry [{$expires}] is not \"never\" or a number of days.");
+        }
+
+        return now()->addDays((int) $expires);
     }
 
     /**
-     * The abilities of a token: "read" and/or "write", then "tool:{name}" for every named tool the role allows
-     * (a write tool only when the token may write; none named = every tool the role allows), then the workspace.
+     * The abilities of a token: "read" and/or "write", then "tool:{name}" for every named tool the signed-in
+     * person's role allows (a write tool only when the token may write; none named = every tool the role allows),
+     * then the workspace. A named tool the role does not allow, or a write tool on a token that may not write, is
+     * left out; when nothing named remains the token is refused, since one without a scope would see every tool.
      *
      * @param  list<string>  $abilities
      * @param  list<string>  $tools
      * @return list<string>
+     *
+     * @throws InvalidArgumentException
      */
     public static function abilities(array $abilities, array $tools = [], ?string $tenantSlug = null): array
     {
         $abilities = array_values(array_intersect(['read', 'write'], $abilities));
         $canWrite = in_array('write', $abilities, true);
         $known = self::availableTools();
+        $scoped = [];
 
         foreach (array_values($tools) as $name) {
             if (isset($known[$name]) && ($canWrite || $known[$name]['readOnly'])) {
-                $abilities[] = 'tool:'.$name;
+                $scoped[] = 'tool:'.$name;
             }
         }
+
+        if ($tools !== [] && $scoped === []) {
+            throw new InvalidArgumentException('None of the named tools ['.implode(', ', $tools).'] can be scoped on this token: the role does not allow them, or they write and the token may not.');
+        }
+
+        array_push($abilities, ...$scoped);
 
         if ($tenantSlug !== null && $tenantSlug !== '') {
             $abilities[] = 'tenant:'.$tenantSlug;
@@ -122,6 +147,8 @@ class AgentTokens
      *
      * @param  list<string>  $abilities
      * @param  list<string>  $tools
+     *
+     * @throws InvalidArgumentException
      */
     public static function mint(object $user, string $label, array $abilities, array $tools = [], string $expires = 'never', ?string $tenantSlug = null): string
     {
