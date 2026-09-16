@@ -248,6 +248,8 @@ it('phrases a proposal, folds a result, names a cut-short reason and a duration,
         ->and(AgentChat::question(null, 'archive-widget', []))->toBe('Archive Widget?')
         ->and(AgentChat::resultText('{"renamed":true,"widget":{"id":1}}'))->toBe("{\n    \"renamed\": true,\n    \"widget\": {\n        \"id\": 1\n    }\n}")
         ->and(AgentChat::resultText('plain text'))->toBe('plain text')
+        ->and(AgentChat::resultText(['ok' => true]))->toBe("{\n    \"ok\": true\n}")
+        ->and(AgentChat::resultText(''))->toBeNull()
         ->and(AgentChat::resultText(null))->toBeNull()
         ->and(AgentChat::cutShortText('length'))->toBe(__('The answer hit the model\'s length limit.'))
         ->and(AgentChat::cutShortText('other'))->toBe(__('The provider closed the stream before the answer was complete.'))
@@ -263,7 +265,19 @@ it('turns a chart result into a Chart.js payload and a table result into the res
         ->and(AgentChat::chartFromResult(['chart' => ['labels' => [], 'datasets' => []]]))->toBeNull()
         ->and(AgentChat::chartFromResult('not json'))->toBeNull()
         ->and(AgentChat::tableFromResult(['table' => ['resource' => 'widgets', 'filters' => ['status' => ['live']], 'title' => 'Live widgets']]))->toBe(['resource' => 'widgets', 'filters' => ['status' => ['live']], 'title' => 'Live widgets'])
-        ->and(AgentChat::tableFromResult(['table' => ['resource' => 'orders']]))->toBeNull();
+        ->and(AgentChat::tableFromResult(['table' => ['resource' => 'orders']]))->toBeNull()
+        ->and(AgentChat::tableFromResult('{"rows":[]}'))->toBeNull();
+
+    // A line is filled under a translucent stroke; a pie colours each slice and separates them in white.
+    $line = AgentChat::chartFromResult(['chart' => ['type' => 'line', 'labels' => ['Mon', 'Tue'], 'datasets' => [['label' => 'Sales', 'data' => ['mon' => 1, 'tue' => 2]], ['data' => [3, 4]]]]]);
+    $pie = AgentChat::chartFromResult(['chart' => ['type' => 'doughnut', 'labels' => ['live', 'draft'], 'datasets' => [['label' => 'Widgets', 'data' => [2, 1]]]]]);
+
+    expect($line['data'])->toBe(['labels' => ['Mon', 'Tue'], 'datasets' => [
+        ['label' => 'Sales', 'data' => [1, 2], 'backgroundColor' => '#f59e0b22', 'borderColor' => '#f59e0b', 'fill' => true, 'tension' => 0.3],
+        ['label' => '', 'data' => [3, 4], 'backgroundColor' => '#8b5cf622', 'borderColor' => '#8b5cf6', 'fill' => true, 'tension' => 0.3],
+    ]])
+        ->and($pie['type'])->toBe('doughnut')
+        ->and($pie['data']['datasets'])->toBe([['label' => 'Widgets', 'data' => [2, 1], 'backgroundColor' => ['#f59e0b', '#8b5cf6'], 'borderColor' => '#ffffff']]);
 });
 
 it('lists the models by provider with what each label leaves out', function () {
@@ -334,6 +348,10 @@ it('mints an access token narrowed to the tools the role allows, the workspace a
 
 it('labels a turn status', function () {
     expect(AgentTurn::statusLabel(AgentTurn::QUEUED))->toBe(__('Queued'))
+        ->and(AgentTurn::statusLabel(AgentTurn::PENDING))->toBe(__('Pending'))
+        ->and(AgentTurn::statusLabel(AgentTurn::RUNNING))->toBe(__('Running'))
+        ->and(AgentTurn::statusLabel(AgentTurn::DONE))->toBe(__('Done'))
+        ->and(AgentTurn::statusLabel(AgentTurn::STOPPED))->toBe(__('Stopped'))
         ->and(AgentTurn::statusLabel(AgentTurn::FAILED))->toBe(__('Failed'))
         ->and(AgentTurn::statusLabel('other'))->toBe('other');
 });
@@ -377,9 +395,131 @@ it('compresses a chat in place and continues it in a new one, both from a summar
         ->and($summary->content)->toContain('Alpha, Beta')
         ->and(AgentChat::for($user, $newId)->owns($newId))->toBeTrue()
         ->and(Conversation::query()->find($newId)->title)->toBe('Renames (continued)')
-        ->and(AgentChat::for($user, $newId)->history()['source'])->toBe($id);
+        ->and(AgentChat::for($user, $newId)->history())->toMatchArray(['source' => $id, 'sourceTitle' => 'Renames']);
 
     // Without a conversation there is nothing to compress or continue.
     expect(AgentChat::for($user)->compress())->toBeFalse()
         ->and(AgentChat::for($user)->continueInNew())->toBeNull();
+});
+
+it('reads the page context, a read-only call, the notes on an answer, and how the last turn ended', function () {
+    $user = $this->user();
+    actingAs($user);
+    [$alpha] = $this->widgets();
+
+    expect(AgentChat::for($user, null, null, "widgets/{$alpha->id}")->contextLabel())->toBe('Widget Alpha')
+        ->and(AgentChat::for($user)->contextLabel())->toBeNull()
+        ->and(AgentChat::for($user)->title())->toBeNull()
+        ->and(AgentChat::for($user)->owns('nope'))->toBeFalse();
+
+    $id = conversationWith($user, [
+        ['role' => 'user', 'content' => 'Which widgets are live?'],
+        [
+            'content' => 'Alpha is live. Beta is',
+            'tool_calls' => [['id' => 'r1', 'name' => 'list-widgets', 'arguments' => ['status' => 'live']]],
+            'tool_results' => [['id' => 'r1', 'name' => 'list-widgets', 'result' => '[{"id":1}]']],
+            'meta' => ['stopped' => true, 'cut_short' => 'length', 'answered_by' => ['provider' => 'gemini', 'model' => 'gemini-flash']],
+        ],
+    ]);
+
+    $answer = AgentChat::for($user, $id)->messages()->last();
+    expect($answer)->toMatchArray(['stopped' => true, 'cutShort' => 'length', 'answeredBy' => ['provider' => 'gemini', 'model' => 'gemini-flash'], 'regenerable' => true])
+        ->and($answer['tools'][0])->toMatchArray(['id' => 'r1', 'name' => 'List Widgets', 'question' => 'List Widgets live?', 'readOnly' => true, 'pending' => false, 'rejected' => false, 'result' => '[{"id":1}]']);
+
+    // The last turn ended badly: a stopped question, then a decision no worker could apply, each with what it was.
+    $turn = function (array $attributes) use ($id, $user) {
+        usleep(1100);
+
+        return AgentTurn::query()->create($attributes + ['id' => (string) Str::uuid7(), 'conversation_id' => $id, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id]);
+    };
+    $turn(['status' => AgentTurn::STOPPED, 'input' => ['prompt' => 'And Beta?'], 'finish_reason' => 'stop']);
+    expect(AgentChat::for($user, $id)->live()['ended'])->toBe(['status' => AgentTurn::STOPPED, 'reason' => 'stop', 'error' => null, 'decision' => false]);
+
+    $turn(['status' => AgentTurn::FAILED, 'input' => ['decisions' => ['c9' => true]], 'error' => 'The worker died.']);
+    expect(AgentChat::for($user, $id)->live()['ended'])->toBe(['status' => AgentTurn::FAILED, 'reason' => null, 'error' => 'The worker died.', 'decision' => true]);
+
+    $turn(['status' => AgentTurn::DONE, 'input' => ['prompt' => 'And Beta?']]);
+    expect(AgentChat::for($user, $id)->live()['ended'])->toBeNull();
+});
+
+it('sums what the chat cost over its ended turns and meters a long history', function () {
+    $user = $this->user();
+    actingAs($user);
+    config(['packstub-agents.history.max_tokens' => 1000]);
+
+    $id = conversationWith($user, [
+        ['role' => 'user', 'content' => str_repeat('Tell me about the widgets. ', 40)],
+        ['content' => str_repeat('The widgets are fine. ', 120)],
+    ]);
+    $turn = function (array $attributes) use ($id, $user) {
+        usleep(1100);
+
+        return AgentTurn::query()->create($attributes + ['id' => (string) Str::uuid7(), 'conversation_id' => $id, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id, 'input' => ['prompt' => 'Tell me']]);
+    };
+    $turn(['status' => AgentTurn::DONE, 'usage' => ['prompt_tokens' => 100, 'cache_read_input_tokens' => 50, 'completion_tokens' => 20, 'reasoning_tokens' => 5], 'tool_calls' => [['name' => 'list-widgets']], 'duration_ms' => 1500]);
+    $turn(['status' => AgentTurn::DONE, 'usage' => ['prompt_tokens' => 400, 'completion_tokens' => 10], 'duration_ms' => 900]);
+    $turn(['status' => AgentTurn::FAILED, 'usage' => null, 'duration_ms' => 200]); // the last one is unread: it ended without usage
+    $turn(['status' => AgentTurn::QUEUED]); // an open turn does not count yet
+
+    $history = AgentChat::for($user, $id)->history();
+
+    expect($history['turns'])->toBe(['count' => 3, 'tokens_in' => 550, 'tokens_out' => 35, 'tool_calls' => 1, 'duration_ms' => 2600, 'last_tokens_in' => 400])
+        ->and($history['share'])->toBeGreaterThanOrEqual(0.7)
+        ->and($history['meter'])->toBeTrue()
+        ->and($history['notice'])->toBeTrue()
+        ->and($history['summarized'])->toBeFalse()
+        ->and($history['sourceTitle'])->toBeNull();
+});
+
+it('does nothing without a conversation or with the agent off, and counts any other rating as down', function () {
+    $user = $this->user();
+    actingAs($user);
+
+    $chat = AgentChat::for($user);
+    $chat->stop();
+    expect($chat->decide('c1', true))->toBeNull()
+        ->and($chat->retry())->toBeNull()
+        ->and($chat->regenerate())->toBeNull()
+        ->and($chat->resend('Again'))->toBeNull()
+        ->and($chat->removeQueued('t1'))->toBeFalse()
+        ->and($chat->editQueued('t1'))->toBeNull()
+        ->and($chat->compress())->toBeFalse()
+        ->and($chat->continueInNew())->toBeNull()
+        ->and(AgentTurn::query()->count())->toBe(0);
+
+    WidgetAgent::fake(['Two.']);
+    $chat->send('How many?');
+    $chat->stop(); // nothing runs, so nothing to stop
+    $answer = $chat->messages()->last()['id'];
+
+    $chat->rate($answer, 'meh');
+    expect(AgentMessageFeedback::query()->where('message_id', $answer)->value('rating'))->toBe('down');
+    $chat->rate($answer, 'up');
+    expect(AgentMessageFeedback::query()->where('message_id', $answer)->pluck('rating')->all())->toBe(['up']);
+
+    config(['packstub-agents.enabled' => false]);
+    $chat = AgentChat::for($user, $chat->conversation());
+    expect($chat->compress())->toBeFalse()
+        ->and($chat->continueInNew())->toBeNull()
+        ->and($chat->regenerate())->toBeNull()
+        ->and(AgentTurn::query()->count())->toBe(1);
+});
+
+it('mints with the defaults, fills the tenant into the endpoint and falls back on the server slug', function () {
+    $user = $this->user();
+    actingAs($user);
+    config(['packstub-agents.mcp.path' => 'mcp/{tenant}', 'packstub-agents.name' => '']);
+
+    expect(AgentTokens::mcpUrl('acme'))->toBe(url('/mcp/acme'))
+        ->and(AgentTokens::serverSlug())->toBe('assistant')
+        ->and(AgentTokens::expiresAt('soon'))->toBeNull()
+        ->and(AgentTokens::abilities(['admin', 'write'], ['list-widgets']))->toBe(['write', 'tool:list-widgets'])
+        ->and(AgentTokens::abilities(['read'], [], ''))->toBe(['read']);
+
+    AgentTokens::mint($user, '  Desktop  ', ['read']);
+    $token = $user->tokens()->sole();
+
+    expect($token->name)->toBe('Desktop')
+        ->and($token->abilities)->toBe(['read'])
+        ->and($token->expires_at)->toBeNull();
 });
