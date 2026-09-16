@@ -24,6 +24,31 @@ The job captures who asked and where (`AgentContext::capture()`: the user, the g
 
 Run a queue worker for the jobs (see [Installation](installation.md#a-queue-worker)). A turn no worker takes within `chat.worker_wait` seconds gets a status line that names the missing worker (`AgentTurns::statusText()` is that line for a chat surface of your own, `awaitingWorker($turn)` the bare check). A job the queue never finishes — a worker that died mid-answer — is marked failed after `chat.job_timeout`, with the question kept. With `chat.driver` set to `sync` (`AGENT_TURN_DRIVER=sync`) the job runs inside the request, whatever queue the app uses.
 
+### A chat surface of your own
+
+`Packstub\Agents\Support\AgentChat` is one person's chat without a UI: what a surface reads and what it does, so a JSON API, a Livewire component, an Inertia page or a console command needs no logic of its own. Filament Agents' chat page is one surface over it.
+
+```php
+use Packstub\Agents\Support\AgentChat;
+
+$chat = AgentChat::for($user);                       // a new chat, on the person's remembered model
+$chat = AgentChat::for($user, $conversationId, 'fast', 'orders/12'); // an existing one, a model key, a page context
+
+$turn = $chat->send('Which orders are waiting?');    // the AgentTurn queued (null: empty question, agent off)
+$chat->conversation();                               // set by the first question
+$chat->messages();                                   // the transcript, see below
+$chat->live();                                       // ['active' => the running turn, 'queued' => the questions behind it, 'ended' => how the last one failed]
+$chat->decide('call_1', approve: true);              // a proposal's decision, as a turn
+$chat->retry(); $chat->regenerate(); $chat->resend('…'); $chat->stop();
+$chat->removeQueued($turnId); $chat->editQueued($turnId); // take a waiting question out of the line (editQueued hands its text back)
+$chat->rate($messageId, 'up');
+$chat->history();                                    // the context meter: share of the window, breakdown, what the chat cost
+$chat->compress(); $chat->continueInNew();           // fold the older part into the summary; start a new chat from a summary of this one
+$chat->suggestions(); $chat->title(); $chat->owns($id); $chat->ownConversations();
+```
+
+`messages()` returns the conversation oldest first, each with `role`, `text`, `html` (an answer rendered), `tools` — every call with its `question` (the proposal as a sentence), `pending`, `held` (a decision waiting for the other proposal of the same answer), `rejected`, `result`, `readOnly` — `charts` (Chart.js payloads from `chart` results), `tables` (a `show-table` result, when the app registers agent resources), `rating`, `stopped`, `cutShort`, `answeredBy`, and what a surface may offer on it: `unanswered` (a Retry), `editable` (Edit on the last question), `regenerable` (Regenerate on the last answer), only while nothing runs. Poll the [turn endpoint](#how-a-turn-runs) for the running answer, then read `messages()` again. On the sync driver the turn a method returns has already run, so its `status` and `error` say how it went. The static helpers phrase what a surface shows: `question($tool, $name, $arguments)`, `resultText($result)`, `chartFromResult()`, `tableFromResult()`, `cutShortText($reason)`, `duration($ms)`, `breakdownLabels()`, `modelMenu()` (the picker's entries by provider, with the model name under a label) and `writeToolNames()`.
+
 ## Long chats
 
 A chat can go on as long as you like; what changes is what the model reads. Each turn replays the most recent messages that fit the history window (`history.max_tokens`, estimated), cut on turn boundaries so a tool call keeps its result. Tool results older than a few turns (`history.keep_tool_results_turns`) are replaced by a one-line placeholder — the stored transcript is untouched. Messages that fall out of the window are folded into a rolling summary written by the provider's cheapest model and stored per conversation (`agent_conversation_summaries`); the model reads it ahead of the verbatim tail, and the summary grows in place rather than being rewritten, so a provider's prompt cache keeps hitting (see [Prompt caching](#prompt-caching)).

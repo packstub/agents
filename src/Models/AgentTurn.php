@@ -125,4 +125,18 @@ class AgentTurn extends Model
     {
         return $query->where('conversation_id', $conversationId);
     }
+
+    /** The status as a person reads it, for a turn log. */
+    public static function statusLabel(string $status): string
+    {
+        return match ($status) {
+            self::QUEUED => __('Queued'),
+            self::PENDING => __('Pending'),
+            self::RUNNING => __('Running'),
+            self::DONE => __('Done'),
+            self::STOPPED => __('Stopped'),
+            self::FAILED => __('Failed'),
+            default => $status,
+        };
+    }
 }

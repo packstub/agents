@@ -12,6 +12,7 @@ use Laravel\Ai\Messages\MessageRole;
 use Laravel\Ai\Messages\ToolResultMessage;
 use Laravel\Ai\Messages\UserMessage;
 use Laravel\Ai\Models\Conversation;
+use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Prompts\AgentPrompt;
 use Laravel\Ai\Responses\Data\ToolResult;
 use Laravel\Ai\Storage\DatabaseConversationStore;
@@ -674,5 +675,13 @@ class AgentConversationStore extends DatabaseConversationStore
     protected function isUserMessage(mixed $message): bool
     {
         return $message instanceof Message && $message->role === MessageRole::User;
+    }
+
+    /** Delete a conversation with its messages and its rolling summary; its turns stay in the operator's log. */
+    public function deleteConversation(string $conversationId): void
+    {
+        ConversationMessage::query()->where('conversation_id', $conversationId)->delete();
+        ConversationSummary::query()->where('conversation_id', $conversationId)->delete();
+        Conversation::query()->whereKey($conversationId)->delete();
     }
 }

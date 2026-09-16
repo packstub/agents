@@ -2,6 +2,17 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.3.0 — 2026-09-16
+
+The chat logic Filament Agents' pages held moves here, so a chat surface of your own — a JSON API, a Livewire or Inertia page, a command — reads and drives a conversation without a panel. Filament Agents 1.10 delegates to these classes; nothing changes for it.
+
+### Added
+
+- **`AgentChat`.** One person's chat without a UI: `AgentChat::for($user, $conversation, $model, $context)`, then `send()`, `decide()`, `retry()`, `regenerate()`, `resend()`, `stop()`, `removeQueued()`, `editQueued()`, `rate()`, `compress()`, `continueInNew()`, each returning the `AgentTurn` it queued where one is; `messages()` (the transcript with each proposal's question and state, charts, tables, ratings and what may be offered on the last exchange), `live()`, `idle()`, `history()` (the context meter and what the chat cost), `suggestions()`, `title()`, `owns()`, `ownConversations()`; and the static helpers a surface phrases things with (`question()`, `resultText()`, `chartFromResult()`, `tableFromResult()`, `cutShortText()`, `duration()`, `breakdownLabels()`, `modelMenu()`, `writeToolNames()`). See [A chat surface of your own](https://packstub.dev/docs/agents/assistant#a-chat-surface-of-your-own).
+- **`AgentTokens`.** What an agent access form needs — `availableTools()`, `toolTitles()`, `expiryOptions()`, `mcpUrl()`, `serverSlug()` — and `mint($user, $label, $abilities, $tools, $expires, $tenantSlug)`, which scopes the token to the named tools the role allows (a write tool only on a token that may write), binds it to the workspace and sets the expiry.
+- **`AgentTurn::statusLabel($status)`** gives a turn's status as a person reads it; **`AgentConversationStore::deleteConversation($id)`** deletes a conversation with its messages and rolling summary, keeping its turns in the operator's log.
+- The strings these emit ("Rolling summary", "Queued", ":days days"…) ship in the package's German, Spanish, Romanian and Russian files, with the two cut-short reasons that had no translation.
+
 ## 1.2.1 — 2026-09-15
 
 ### Changed

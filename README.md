@@ -144,7 +144,7 @@ $conversation = app(AgentConversationStore::class)->startConversation($user, $qu
 $turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => $question], null, 'auto', null); // model key, page context ("orders/12")
 ```
 
-`GET agents/chat/{conversation}/turn` returns the answer so far and a status line; run `php artisan queue:work`, or set `AGENT_TURN_DRIVER=sync` to run the job inside the request — a turn no worker takes within `AGENT_WORKER_WAIT` seconds says so on that status line. Long chats replay a token-budgeted window with a rolling summary. Read more: [The agent](https://packstub.dev/docs/agents/assistant#how-a-turn-runs).
+`AgentChat::for($user)` wraps this for a chat surface of your own (send, decide, retry, stop, the transcript with its proposals, the context meter). `GET agents/chat/{conversation}/turn` returns the answer so far and a status line; run `php artisan queue:work`, or set `AGENT_TURN_DRIVER=sync` to run the job inside the request — a turn no worker takes within `AGENT_WORKER_WAIT` seconds says so on that status line. Long chats replay a token-budgeted window with a rolling summary. Read more: [The agent](https://packstub.dev/docs/agents/assistant#how-a-turn-runs).
 
 ## Filters and charts
 
