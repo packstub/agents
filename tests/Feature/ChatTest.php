@@ -337,3 +337,49 @@ it('labels a turn status', function () {
         ->and(AgentTurn::statusLabel(AgentTurn::FAILED))->toBe(__('Failed'))
         ->and(AgentTurn::statusLabel('other'))->toBe('other');
 });
+
+it('compresses a chat in place and continues it in a new one, both from a summary', function () {
+    $user = $this->user();
+    actingAs($user);
+    config(['packstub-agents.history.compress_keep_turns' => 1]);
+
+    $id = conversationWith($user, [
+        ['role' => 'user', 'content' => 'Rename widget 1 to Alpha'],
+        ['content' => 'Widget 1 is now Alpha.'],
+        ['role' => 'user', 'content' => 'And widget 2 to Beta'],
+        ['content' => 'Widget 2 is now Beta.'],
+        ['role' => 'user', 'content' => 'How many widgets are live?'],
+        ['content' => 'Two widgets are live.'],
+    ]);
+    $store = app(AgentConversationStore::class);
+
+    // Compress keeps the last exchange verbatim and folds the rest into the rolling summary.
+    WidgetAgent::fake(['Widgets 1 and 2 were renamed to Alpha and Beta.']);
+    $chat = AgentChat::for($user, $id);
+
+    expect($chat->compress())->toBeTrue()
+        ->and(ConversationSummary::query()->where('conversation_id', $id)->value('content'))->toContain('Alpha and Beta')
+        ->and($store->contextUsage($id)['summarized'])->toBeTrue()
+        ->and($chat->history()['breakdown'])->toHaveKey('summary')
+        ->and($chat->compress())->toBeFalse(); // nothing older than the kept exchange
+
+    // Nothing is compressed while a turn runs.
+    AgentTurn::query()->create(['id' => (string) Str::uuid7(), 'conversation_id' => $id, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id, 'status' => AgentTurn::QUEUED, 'input' => ['prompt' => 'Later']]);
+    expect(AgentChat::for($user, $id)->compress())->toBeFalse();
+
+    // Continue in a new chat: a new conversation of the same person, carrying a summary that names its source.
+    WidgetAgent::fake(['Alpha, Beta, two live widgets.']);
+    $newId = $chat->continueInNew();
+    $summary = ConversationSummary::query()->where('conversation_id', $newId)->sole();
+
+    expect($newId)->not->toBe($id)
+        ->and($summary->source_conversation_id)->toBe($id)
+        ->and($summary->content)->toContain('Alpha, Beta')
+        ->and(AgentChat::for($user, $newId)->owns($newId))->toBeTrue()
+        ->and(Conversation::query()->find($newId)->title)->toBe('Renames (continued)')
+        ->and(AgentChat::for($user, $newId)->history()['source'])->toBe($id);
+
+    // Without a conversation there is nothing to compress or continue.
+    expect(AgentChat::for($user)->compress())->toBeFalse()
+        ->and(AgentChat::for($user)->continueInNew())->toBeNull();
+});
