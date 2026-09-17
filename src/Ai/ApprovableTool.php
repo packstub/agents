@@ -39,7 +39,17 @@ class ApprovableTool extends McpServerTool implements Approvable
             return $question;
         }
 
-        $title = method_exists($tool, 'title') ? $tool->title() : Str::headline(class_basename($tool));
+        return self::phrase(method_exists($tool, 'title') ? $tool->title() : Str::headline(class_basename($tool)), $arguments);
+    }
+
+    /**
+     * A title and the first scalar argument as a question ("Retire Widget 12?", "Archive Widget true?"): the one
+     * phrasing for a tool without a sentence of its own and for a call whose tool is no longer registered.
+     *
+     * @param  array<string, mixed>  $arguments
+     */
+    public static function phrase(string $title, array $arguments): string
+    {
         $first = collect($arguments)->first(fn ($value) => is_scalar($value) && $value !== '');
 
         return rtrim($title.($first === null ? '' : ' '.(is_bool($first) ? var_export($first, true) : $first)), '?').'?';

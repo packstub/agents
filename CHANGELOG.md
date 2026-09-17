@@ -2,6 +2,23 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.3.0 — 2026-09-16
+
+The chat logic Filament Agents' pages held moves here, so a chat surface of your own — a JSON API, a Livewire or Inertia page, a command — reads and drives a conversation without a panel. Filament Agents 1.10 delegates to these classes; nothing changes for it.
+
+### Added
+
+- **`AgentChat`.** One person's chat without a UI: `AgentChat::for($user, $conversation, $model, $context)` (the person an Eloquent model; a conversation that is not the person's is not found), then `send()`, `decide()`, `retry()`, `regenerate()`, `resend()`, `stop()`, `removeQueued()`, `editQueued()`, `rate()` (a message outside the chat is not found), `compress()` (false when nothing is older; `ChatBusy` while a turn runs or a decision waits, since a surface offers it while idle), `continueInNew()`, each returning the `AgentTurn` it queued where one is; `messages()` (the transcript with each proposal's question and state, charts, tables, ratings and what may be offered on the last exchange), `live()`, `idle()`, `history()` (the context meter and what the chat cost), `suggestions()`, `title()`, `owns()`, `ownConversations()`; and the static helpers a surface phrases things with (`question()`, `resultText()`, `chartFromResult()`, `tableFromResult()`, `cutShortText()`, `duration()`, `breakdownLabels()`, `modelMenu()`, `writeToolNames()`). See [A chat surface of your own](https://packstub.dev/docs/agents/assistant#a-chat-surface-of-your-own).
+- **`AgentTokens`.** What an agent access form needs — `availableTools()`, `toolTitles()`, `expiryOptions()`, `mcpUrl()`, `serverSlug()` — and `mint($user, $label, $abilities, $tools, $expires, $tenantSlug)`, which scopes the token to the named tools the role allows (a write tool only on a token that may write), binds it to the workspace and sets the expiry. Naming only tools that cannot be scoped, or an expiry that is not "never" or a number of days, refuses the token rather than minting one without a scope or without an expiry.
+- **`ApprovableTool::phrase($title, $arguments)`** is the one phrasing of a title and the first argument as a question, used for a tool without a sentence of its own and for a proposal whose tool is no longer registered.
+- **`AgentTurn::statusLabel($status)`** gives a turn's status as a person reads it; **`AgentConversationStore::deleteConversation($id)`** deletes a conversation with its messages and rolling summary, keeping its turns in the operator's log.
+- The strings these emit ("Rolling summary", "Queued", ":days days"…) ship in the package's German, Spanish, Romanian and Russian files, with the two cut-short reasons that had no translation.
+
+### Fixed
+
+- **A held decision keeps the chat busy.** Approving one of two proposals holds the decision until the other is decided; the chat still counted as idle meanwhile, so editing or regenerating the question under it deleted the paused answer and the held decision failed when it ran. `AgentChat::idle()` (and `messages()`'s `editable` / `regenerable`) now count a held decision, `live()` lists it under `held`, and only the other decision is accepted until both are in. Filament Agents' page had the same gap.
+- **Deleting a chat deletes its ratings.** `deleteConversation()` removes the `agent_message_feedback` rows of the messages it deletes, as dropping an answer already did.
+
 ## 1.2.1 — 2026-09-15
 
 ### Changed
