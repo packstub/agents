@@ -2,6 +2,7 @@
 
 namespace Packstub\Agents\Support;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -150,7 +151,7 @@ class AgentTokens
      *
      * @throws InvalidArgumentException
      */
-    public static function mint(object $user, string $label, array $abilities, array $tools = [], string $expires = 'never', ?string $tenantSlug = null): string
+    public static function mint(Model $user, string $label, array $abilities, array $tools = [], string $expires = 'never', ?string $tenantSlug = null): string
     {
         return $user->createToken(
             Str::limit(trim($label), 60, ''),

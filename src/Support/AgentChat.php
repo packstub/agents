@@ -4,6 +4,7 @@ namespace Packstub\Agents\Support;
 
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -11,6 +12,7 @@ use Laravel\Ai\AiManager;
 use Laravel\Ai\Models\Conversation;
 use Laravel\Ai\Models\ConversationMessage;
 use Packstub\Agents\Ai\ApprovableTool;
+use Packstub\Agents\Exceptions\ChatBusy;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Mcp\AgentTool;
 use Packstub\Agents\Models\AgentMessageFeedback;
@@ -33,19 +35,20 @@ class AgentChat
     protected ?array $live = null;
 
     public function __construct(
-        protected object $participant,
+        protected Model $participant,
         protected ?string $conversation = null,
         protected string $model = 'auto',
         protected ?string $context = null,
     ) {}
 
     /**
-     * A chat for the person, on one of their conversations or a new one. A conversation that is not the
-     * person's — another person's, or none — is not found, so a surface can pass the id from the request as is.
+     * A chat for the person (an Eloquent model: the conversations and ratings are keyed by it), on one of their
+     * conversations or a new one. A conversation that is not the person's — another person's, or none — is not
+     * found, so a surface can pass the id from the request as is.
      *
      * @throws ModelNotFoundException
      */
-    public static function for(object $participant, ?string $conversation = null, ?string $model = null, ?string $context = null): static
+    public static function for(Model $participant, ?string $conversation = null, ?string $model = null, ?string $context = null): static
     {
         $chat = new static($participant, $conversation, $model ?? AgentModels::current(), $context);
 
@@ -62,7 +65,7 @@ class AgentChat
         return $this->conversation;
     }
 
-    public function participant(): object
+    public function participant(): Model
     {
         return $this->participant;
     }
@@ -340,13 +343,20 @@ class AgentChat
 
     /**
      * Fold the older part of this chat into its rolling summary now, keeping the last exchanges verbatim: true when
-     * something was compressed, false when there was nothing older or the chat is busy. The summarizer's failure
-     * is thrown.
+     * something was compressed, false when there was nothing older (or no chat, or the agent is off). A surface
+     * offers this while the chat is idle; compressing while a turn runs or a decision waits is refused as ChatBusy.
+     * The summarizer's failure is thrown.
+     *
+     * @throws ChatBusy
      */
     public function compress(): bool
     {
-        if (! $this->conversation || ! AgentModels::enabled() || ! $this->idle()) {
+        if (! $this->conversation || ! AgentModels::enabled()) {
             return false;
+        }
+
+        if (! $this->idle()) {
+            throw new ChatBusy('The chat cannot be compressed while a turn runs or a decision waits for the other proposal.');
         }
 
         return app(AgentConversationStore::class)->compactNow($this->conversation, $this->summarizer(), AgentConversationStore::compressKeepTurns());
@@ -486,9 +496,23 @@ class AgentChat
         return $queued->prompt();
     }
 
-    /** Rate an answer "up" or "down" (anything else counts as down). */
+    /**
+     * Rate an answer "up" or "down" (anything else counts as down). A message that is not in this chat is not
+     * found, so a surface can pass the id from the request as is.
+     *
+     * @throws ModelNotFoundException
+     */
     public function rate(string $messageId, string $rating): void
     {
+        $owned = $this->conversation && ConversationMessage::query()
+            ->where('conversation_id', $this->conversation)
+            ->whereKey($messageId)
+            ->exists();
+
+        if (! $owned) {
+            throw (new ModelNotFoundException)->setModel(ConversationMessage::class, [$messageId]);
+        }
+
         AgentMessageFeedback::query()->updateOrCreate(
             ['message_id' => $messageId, 'user_id' => $this->participant->getKey()],
             ['rating' => $rating === 'up' ? 'up' : 'down'],
@@ -564,19 +588,13 @@ class AgentChat
 
     /**
      * The proposal as a question the person can answer (ApprovableTool::question); a tool that is no longer
-     * registered reads as its name and the first argument.
+     * registered reads as its name and the first argument, phrased the same way.
      *
      * @param  array<string, mixed>  $arguments
      */
     public static function question(?object $tool, string $name, array $arguments): string
     {
-        if ($tool) {
-            return ApprovableTool::question($tool, $arguments);
-        }
-
-        $first = collect($arguments)->first(fn ($value) => is_scalar($value) && $value !== '');
-
-        return rtrim(Str::headline($name).($first === null ? '' : ' '.$first), '?').'?';
+        return $tool ? ApprovableTool::question($tool, $arguments) : ApprovableTool::phrase(Str::headline($name), $arguments);
     }
 
     /** A tool result for the proposal's fold: JSON pretty-printed, anything else as it came. */

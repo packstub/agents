@@ -41,9 +41,9 @@ $chat->live();                                       // ['active' => the running
 $chat->decide('call_1', approve: true);              // a proposal's decision, as a turn
 $chat->retry(); $chat->regenerate(); $chat->resend('…'); $chat->stop();
 $chat->removeQueued($turnId); $chat->editQueued($turnId); // take a waiting question out of the line (editQueued hands its text back)
-$chat->rate($messageId, 'up');
+$chat->rate($messageId, 'up');                      // a message outside this chat is not found
 $chat->history();                                    // the context meter: share of the window, breakdown, what the chat cost
-$chat->compress(); $chat->continueInNew();           // fold the older part into the summary; start a new chat from a summary of this one
+$chat->compress(); $chat->continueInNew();           // fold the older part into the summary (false: nothing older; ChatBusy while a turn runs); start a new chat from a summary of this one
 $chat->suggestions(); $chat->title(); $chat->owns($id); $chat->ownConversations();
 ```
 

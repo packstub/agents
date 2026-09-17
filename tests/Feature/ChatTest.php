@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Laravel\Ai\Models\Conversation;
 use Laravel\Ai\Models\ConversationMessage;
+use Packstub\Agents\Exceptions\ChatBusy;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Models\AgentMessageFeedback;
@@ -93,6 +94,18 @@ it('answers a question into a persisted conversation, rates the answer, and keep
         ->and(fn () => AgentChat::for($user, (string) Str::uuid()))->toThrow(ModelNotFoundException::class)
         ->and(AgentChat::for($user)->owns($chat->conversation()))->toBeTrue()
         ->and(AgentChat::for($user, $chat->conversation())->messages())->toHaveCount(2);
+
+    // Nor rate a message in it: a message outside the chat (another person's, a new chat's, an unknown id) is not found.
+    $otherChat = AgentChat::for($other);
+    WidgetAgent::fake(['Three.']);
+    $otherChat->send('And now?');
+    expect(fn () => $otherChat->rate($messages[1]['id'], 'down'))->toThrow(ModelNotFoundException::class)
+        ->and(fn () => AgentChat::for($user)->rate($messages[1]['id'], 'up'))->toThrow(ModelNotFoundException::class)
+        ->and(fn () => $chat->rate((string) Str::uuid(), 'up'))->toThrow(ModelNotFoundException::class)
+        ->and(AgentMessageFeedback::query()->count())->toBe(1);
+
+    // The person is an Eloquent model: the conversations and ratings are keyed by it.
+    expect(fn () => AgentChat::for(new stdClass))->toThrow(TypeError::class);
 });
 
 it('keeps a question the provider could not answer, says so, and answers it on retry', function () {
@@ -188,7 +201,7 @@ it('shows a decision on one of two proposals as held on its row until the other 
         ->and($chat->regenerate())->toBeNull()
         ->and($chat->resend('Rename only Alpha'))->toBeNull()
         ->and($chat->retry())->toBeNull()
-        ->and($chat->compress())->toBeFalse()
+        ->and(fn () => $chat->compress())->toThrow(ChatBusy::class)
         ->and(ConversationMessage::query()->where('conversation_id', $id)->count())->toBe(2)
         ->and(AgentTurn::query()->forConversation($id)->count())->toBe(1);
 
@@ -263,6 +276,8 @@ it('phrases a proposal, folds a result, names a cut-short reason and a duration,
     expect(AgentChat::question(app(RetireWidget::class), 'retire-widget', ['id' => 12]))->toBe('Retire Widget 12?')
         ->and(AgentChat::question(null, 'archive-widget', ['id' => 3, 'reason' => 'old']))->toBe('Archive Widget 3?')
         ->and(AgentChat::question(null, 'archive-widget', []))->toBe('Archive Widget?')
+        ->and(AgentChat::question(null, 'archive-widget', ['force' => true]))->toBe('Archive Widget true?') // as the tool's own fallback phrases it
+        ->and(AgentChat::question(app(RetireWidget::class), 'retire-widget', ['force' => false]))->toBe('Retire Widget false?')
         ->and(AgentChat::resultText('{"renamed":true,"widget":{"id":1}}'))->toBe("{\n    \"renamed\": true,\n    \"widget\": {\n        \"id\": 1\n    }\n}")
         ->and(AgentChat::resultText('plain text'))->toBe('plain text')
         ->and(AgentChat::resultText(['ok' => true]))->toBe("{\n    \"ok\": true\n}")
@@ -404,9 +419,10 @@ it('compresses a chat in place and continues it in a new one, both from a summar
         ->and($chat->history()['breakdown'])->toHaveKey('summary')
         ->and($chat->compress())->toBeFalse(); // nothing older than the kept exchange
 
-    // Nothing is compressed while a turn runs.
-    AgentTurn::query()->create(['id' => (string) Str::uuid7(), 'conversation_id' => $id, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id, 'status' => AgentTurn::QUEUED, 'input' => ['prompt' => 'Later']]);
-    expect(AgentChat::for($user, $id)->compress())->toBeFalse();
+    // Compressing while a turn runs is a caller's mistake (the surface offers it while idle), refused apart from "nothing older".
+    $later = AgentTurn::query()->create(['id' => (string) Str::uuid7(), 'conversation_id' => $id, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id, 'status' => AgentTurn::QUEUED, 'input' => ['prompt' => 'Later']]);
+    expect(fn () => AgentChat::for($user, $id)->compress())->toThrow(ChatBusy::class);
+    $later->delete();
 
     // Continue in a new chat: a new conversation of the same person, carrying a summary that names its source.
     WidgetAgent::fake(['Alpha, Beta, two live widgets.']);
