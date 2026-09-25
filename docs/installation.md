@@ -117,9 +117,11 @@ Skip this when you only run turns from your own app and set `AGENT_MCP_ENABLED=f
 | Route | Where | Middleware |
 | --- | --- | --- |
 | `POST {mcp.path}` | the MCP endpoint | `mcp.middleware` (`throttle:60,1`, `auth:sanctum`, `AuthenticateAgent`) |
-| `GET {chat.path}/chat/{conversation}/turn` | what a chat polls while an answer is produced: `{"active": {"id", "status", "statusText", "html"} \| null, "version"}` — the running turn with its status line (`AgentTurns::statusText()`) and the answer so far, rendered, and a version stamp that changes whenever the conversation did | `chat.middleware` (`['web', 'auth']`) |
+| `GET {chat.path}/chat/{conversation}/turn` | what a chat polls while an answer is produced: `{"active": {"id", "status", "statusText", "html", "tools"} \| null, "version"}` — the running turn with its status line (`AgentTurns::statusText()`), the answer so far rendered, the tools called so far, and a version stamp that changes whenever the conversation did | `chat.middleware` (`['web', 'auth']`) |
+| `GET {chat.path}/chat/{conversation}/stream` | the same state as server-sent events, pushed whenever it changes, see [Live updates](assistant.md#live-updates) | `chat.middleware` |
+| `POST {chat.path}/email` | the inbound mail webhook, see [The assistant by email](assistant.md#the-assistant-by-email); 404 until the channel is on | `email.middleware` (`['api']`), then the shared secret |
 
-`chat.path` defaults to `agents`. The poll endpoint answers for the conversation's own participant; it is left out when the Filament plugin registered its own on the panel.
+`chat.path` defaults to `agents`. The poll and stream endpoints answer for the conversation's own participant; they are left out when the Filament plugin registered its own on the panel.
 
 ## The provider key
 

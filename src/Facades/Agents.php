@@ -37,6 +37,8 @@ use Packstub\Agents\AgentsManager;
  * @method static void credentialsUsing(\Closure $callback)
  * @method static \Packstub\Agents\Ai\WorkspaceCredentials|null credentials()
  * @method static bool canManageLimits()
+ * @method static void participantByEmailUsing(\Closure $callback)
+ * @method static (\Illuminate\Database\Eloquent\Model&\Illuminate\Contracts\Auth\Authenticatable)|null participantByEmail(string $email)
  * @method static string|null agentAccessAbility()
  * @method static string|null agentAccessGroup()
  * @method static list<string> askButtonHiddenOn()

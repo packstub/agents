@@ -502,7 +502,7 @@ it('sums what the chat cost over its ended turns and meters a long history', fun
 
     $history = AgentChat::for($user, $id)->history();
 
-    expect($history['turns'])->toBe(['count' => 3, 'tokens_in' => 550, 'tokens_out' => 35, 'tool_calls' => 1, 'duration_ms' => 2600, 'last_tokens_in' => 400])
+    expect($history['turns'])->toBe(['count' => 3, 'tokens_in' => 550, 'tokens_out' => 35, 'tool_calls' => 1, 'duration_ms' => 2600, 'cost' => null, 'last_tokens_in' => 400])
         ->and($history['share'])->toBeGreaterThanOrEqual(0.7)
         ->and($history['meter'])->toBeTrue()
         ->and($history['notice'])->toBeTrue()

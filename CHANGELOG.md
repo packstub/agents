@@ -2,6 +2,33 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.4.0 — 2026-09-25
+
+The chat grows up: live updates over an event stream, files with a question, an answer continued or paged through its earlier versions, chats renamed, pinned, searched and exported, a rating with a note, a cost in money. And the assistant reaches beyond the chat: a headless run from a command or the scheduler, an email channel, MCP resources and prompts, events, and an eval harness for tests. Filament Agents 1.11 shows all of it in a panel.
+
+Upgrading: run the migrations (two new tables, `agent_answer_versions` and `agent_pinned_conversations`; a `note` and a `turn_id` on `agent_message_feedback`; a `cost` on `agent_turns`). Nothing else changes: every existing method keeps its signature, the new arguments are optional.
+
+### Added
+
+- **An event stream.** `GET {chat.path}/chat/{conversation}/stream` pushes the turn state as server-sent events whenever it changes (`chat.stream_interval`, 150 ms; the stream closes after `chat.stream_seconds` and the browser reconnects), with an `end` event once nothing runs; the poll endpoint keeps returning the same object, now with the tools called so far (`AgentTurns::state($conversation)` builds both). See [Live updates](https://packstub.dev/docs/agents/assistant#live-updates).
+- **Attachments.** `AgentChat::send($prompt, [$file])` sends laravel/ai files with the question; `AgentAttachments::store($upload)` puts an upload on the attachments disk (config `chat.attachments`: disk, directory, size cap, MIME types) and returns one, `describe()` gives a surface its name, type and URL, the files are deleted with the conversation. `AgentRun::with()` and `AgentEval::with()` take the same list.
+- **Continue.** `AgentChat::continueAnswer()` carries on an answer the model's length limit cut short; `messages()` marks the continuation question (`continuation`, hidden by a surface) and the answer that follows (`continued`), and offers it as `continuable` on the last answer.
+- **Answer versions.** Regenerate and Edit keep the earlier answer (`agent_answer_versions`, `AgentAnswerVersion`): `messages()` counts them on the question (`versions`), `AgentChat::versions($questionId)` lists them, `showVersion($questionId, $versionId)` puts one back and the chat carries on from it. `AgentConversationStore::dropMessagesAfter()` archives by default (`keepVersion: false` to delete), `versionsOf()` and `restoreVersion()` are the store's side.
+- **Rename, pin, search, export.** `AgentChat::rename()`, `pin()`, `unpin()`, `pinned()` and `AgentChat::pinnedIds($user)` (`agent_pinned_conversations`); `AgentChat::search($user, $words)` finds the person's chats by message or title with a snippet; `transcript()` is the chat as Markdown.
+- **A rating with a note and its turn.** `AgentChat::rate($messageId, $rating, $note)` stores what the person said with a thumbs-down (`note`) and the turn that produced the answer (`turn_id`), so an operator's turn log can show the rating; `messages()` returns `ratingNote`.
+- **Cost in money.** Config `pricing.models` holds prices per million tokens by model name (a prefix matches every dated variant); when a turn ends its `cost` is computed from its usage (`AgentPricing::cost()`, `format()`, `currency()`), summed per chat in `AgentChat::history()['turns']['cost']` and written to the log line. No prices ship; the cost stays null until you fill them in. See [Cost in money](https://packstub.dev/docs/agents/budgets-and-limits#cost-in-money).
+- **Events.** `TurnStarted`, `ToolCalled` (call id, tool, arguments), `ProposalDecided` (the call as proposed, approved or not) and `TurnEnded`, each with the `AgentTurn`.
+- **The assistant without a chat.** `AgentRun::as($user)->in($team)->ask($question)` runs a turn inside the call whatever `chat.driver` says and returns an `AgentAnswer` (text, HTML, tools, turn, conversation, the proposals left waiting); `php artisan packstub-agents:run "…" --user= --tenant= --model= --context= --conversation= --json` does the same from the console. `AgentChat::sync()` is the switch underneath. See [The assistant without a chat](https://packstub.dev/docs/agents/assistant#the-assistant-without-a-chat).
+- **The assistant by email.** `POST {chat.path}/email` behind a shared secret (`AGENT_EMAIL`, `AGENT_EMAIL_SECRET`) takes a mail provider's inbound webhook: a person's mail is asked as them and answered by reply (`AgentAnswerMail`), a reply continues the chat by the subject tag or the threading headers, a stranger's mail is dropped. `Agents::participantByEmailUsing()` names the person behind an address; `EmailChannel`, `InboundEmail` and `AuthenticateEmailWebhook` are the parts. See [The assistant by email](https://packstub.dev/docs/agents/assistant#the-assistant-by-email).
+- **MCP resources and prompts.** Every server serves `agents://resources` (the agent resources with their filter vocabulary), `record://{resource}/{id}` (one record summarized), and the prompts `what-needs-attention` and `ask-about-record` — a subclass lists its own `$resources` and `$prompts` to replace them. See [Resources and prompts](https://packstub.dev/docs/agents/mcp-clients#resources-and-prompts).
+- **An eval harness.** `Packstub\Agents\Testing\AgentEval::as($user)->expecting([...])->ask($question)` runs the whole engine on a faked provider and asserts which tools the agent called with which arguments, what it proposed and what it answered (`assertCalled()`, `assertCalledInOrder()`, `assertProposed()`, `assertAnswerContains()`, `assertRefused()`…); `then()` continues the conversation, `decide()` answers a proposal. See [Evals](https://packstub.dev/docs/agents/testing#evals).
+- `AgentTurns::owned($conversation, $user)` is the ownership check the endpoints share; `AgentTurns::snapshot()` takes the tools called so far; `AgentConversationStore::storeQuestion()` takes attachments and meta, `renameConversation()`, `isContinuation()`, `attachmentsOf()`.
+- The new strings ship in the German, Spanish, Romanian and Russian files, with three that were missing ("Approved", "Rejected", the daily-limit refusal).
+
+### Fixed
+
+- **A question in the same second as the previous answer.** `AgentChat::messages()` ordered the rows by their timestamp and put a question written within the same second as the answer before it above that answer; the rows are UUIDv7 and now sort by id, the order they were written in.
+
 ## 1.3.0 — 2026-09-16
 
 The chat logic Filament Agents' pages held moves here, so a chat surface of your own — a JSON API, a Livewire or Inertia page, a command — reads and drives a conversation without a panel. Filament Agents 1.10 delegates to these classes; nothing changes for it.

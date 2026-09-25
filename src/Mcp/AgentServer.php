@@ -4,8 +4,13 @@ namespace Packstub\Agents\Mcp;
 
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Contracts\Transport;
+use Laravel\Mcp\Server\Prompt;
 use Laravel\Mcp\Server\Tool;
 use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Mcp\Prompts\AskAboutRecord;
+use Packstub\Agents\Mcp\Prompts\WhatNeedsAttention;
+use Packstub\Agents\Mcp\Resources\RecordResource;
+use Packstub\Agents\Mcp\Resources\ResourcesIndex;
 use Packstub\Agents\Mcp\Tools\DrawChart;
 use ReflectionProperty;
 
@@ -20,7 +25,9 @@ use ReflectionProperty;
  * is, it serves the tools registered with AgentsPlugin::tools() or
  * Agents::useTools() under the assistant's name, or — with none — the
  * package's generic tools: draw-chart, plus show-table in a panel with agent
- * resources.
+ * resources. Every server also serves the package's resources (the app's
+ * resources and one record) and prompts (the starter questions), which a
+ * subclass may replace with its own lists.
  */
 class AgentServer extends Server
 {
@@ -36,6 +43,21 @@ class AgentServer extends Server
 
     /** @var list<class-string<Tool>> */
     protected array $tools = [DrawChart::class];
+
+    /**
+     * What a client reads without a tool call: the app's resources (keys and filters) and one record by key and id,
+     * both only with agent resources registered. A subclass lists its own.
+     *
+     * @var list<class-string<Server\Resource>>
+     */
+    protected array $resources = [ResourcesIndex::class, RecordResource::class];
+
+    /**
+     * The starter questions as prompts a client can pick: the workspace's, and those about one record.
+     *
+     * @var list<class-string<Prompt>>
+     */
+    protected array $prompts = [WhatNeedsAttention::class, AskAboutRecord::class];
 
     public int $defaultPaginationLength = 50;
 

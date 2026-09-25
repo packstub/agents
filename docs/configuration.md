@@ -27,9 +27,24 @@
 | `chat.job_timeout` | `600` | `AGENT_JOB_TIMEOUT` | how long one turn may run on the worker, in seconds; a turn whose job went quiet for longer is marked failed |
 | `chat.worker_wait` | `10` | `AGENT_WORKER_WAIT` | how long a turn may wait for a worker before the status line says none has taken it, in seconds (the queue driver only) |
 | `chat.poll_interval` | `600` | `AGENT_POLL_INTERVAL` | how often a chat surface asks for the answer so far while a turn runs, in milliseconds |
-| `chat.path` | `agents` | | where the poll endpoint lives: `GET {path}/chat/{conversation}/turn`, see [Routes](installation.md#routes) |
+| `chat.stream_interval` | `150` | `AGENT_STREAM_INTERVAL` | how often the stream endpoint checks the turn row while it pushes events, in milliseconds |
+| `chat.stream_seconds` | `55` | `AGENT_STREAM_SECONDS` | how long one event stream stays open before the browser reconnects |
+| `chat.attachments.enabled` | `true` | `AGENT_ATTACHMENTS` | files a person may attach to a question |
+| `chat.attachments.disk` | `null` | `AGENT_ATTACHMENTS_DISK` | the disk they are stored on; `null` = the default filesystem disk |
+| `chat.attachments.directory` | `agent-attachments` | | the directory on that disk |
+| `chat.attachments.max_kb` | `10240` | `AGENT_ATTACHMENTS_MAX_KB` | the size cap per file |
+| `chat.attachments.max_files` | `5` | | how many files one question may carry |
+| `chat.attachments.mimes` | images, PDF, text, CSV, Markdown, JSON | | the accepted MIME types (`image/*` accepts every image) |
+| `chat.attachments.temporary_urls` | `false` | `AGENT_ATTACHMENTS_TEMPORARY_URLS` | ask the disk for signed URLs when a chat shows a file (S3) |
+| `chat.path` | `agents` | | where the poll, stream and email endpoints live: `GET {path}/chat/{conversation}/turn`, `GET …/stream`, `POST {path}/email`, see [Routes](installation.md#routes) |
 | `chat.middleware` | `['web', 'auth']` | | the middleware of that endpoint; the Filament plugin registers its own on the panel's routes instead |
 | `chat.keep_turns_days` | `90` | `AGENT_KEEP_TURNS_DAYS` | how long ended turns (the per-turn record) are kept; `null` keeps them; pruned by `model:prune --model=Packstub\Agents\Models\AgentTurn` |
+| `pricing.currency` | `USD` | `AGENT_PRICING_CURRENCY` | the currency of the prices below |
+| `pricing.models` | `[]` | | prices per million tokens by model name (`in`, `out`, `cache_read`, `cache_write`); see [Cost in money](budgets-and-limits.md#cost-in-money) |
+| `email.enabled` | `false` | `AGENT_EMAIL` | the assistant by email, see [The assistant by email](assistant.md#the-assistant-by-email) |
+| `email.secret` | `null` | `AGENT_EMAIL_SECRET` | the shared secret the mail webhook must send (`X-Agent-Secret`) |
+| `email.from` | `null` | `AGENT_EMAIL_FROM` | the reply's sender; `null` = the app's `mail.from` |
+| `email.middleware` | `['api']` | | the webhook route's middleware, before the secret check |
 | `log.channel` | `null` | `AGENT_LOG_CHANNEL` | the log channel that gets one line per ended turn (provider, model, tokens, tools, duration, how it ended); `null` logs nothing. See [What each turn cost](budgets-and-limits.md#what-each-turn-cost) |
 | `limits.*` | see [Budgets and limits](budgets-and-limits.md) | `AGENT_TURNS_PER_MINUTE`, `AGENT_TURNS_PER_DAY`, `AGENT_TOKENS_PER_DAY`, `AGENT_TOKENS_PER_MONTH`, `AGENT_USER_TOKENS_PER_DAY`, `AGENT_USER_TOKENS_PER_MONTH`, `AGENT_PROMPT_MAX_CHARS` | the platform ceiling |
 | `limits_connection` | `null` | `AGENT_LIMITS_CONNECTION` | the connection of the `agent_limits` table (the central one in a database-per-tenant app) |

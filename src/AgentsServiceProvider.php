@@ -7,9 +7,13 @@ use Laravel\Ai\Contracts\ConversationStore;
 use Laravel\Mcp\Facades\Mcp;
 use Packstub\Agents\Commands\MakeAgentCommand;
 use Packstub\Agents\Commands\MakeToolCommand;
+use Packstub\Agents\Commands\RunCommand;
 use Packstub\Agents\Contracts\AgentContext;
+use Packstub\Agents\Http\Controllers\EmailInboundController;
 use Packstub\Agents\Http\Controllers\TurnController;
+use Packstub\Agents\Http\Controllers\TurnStreamController;
 use Packstub\Agents\Http\Middleware\AcceptJson;
+use Packstub\Agents\Http\Middleware\AuthenticateEmailWebhook;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\Context\LaravelContext;
 use Packstub\Agents\Support\Installed;
@@ -29,6 +33,8 @@ class AgentsServiceProvider extends PackageServiceProvider
             ->runsMigrations((bool) config('packstub-agents.run_migrations', true))
             ->hasCommand(MakeAgentCommand::class)
             ->hasCommand(MakeToolCommand::class)
+            ->hasCommand(RunCommand::class)
+            ->hasViews('packstub-agents-mail')
             ->hasInstallCommand(function (InstallCommand $command): void {
                 $command
                     ->startWith(fn (InstallCommand $command) => $command->info('Installing Packstub Agents…'))
@@ -82,6 +88,7 @@ class AgentsServiceProvider extends PackageServiceProvider
         $this->app->booted(function (): void {
             $this->registerMcpRoute();
             $this->registerTurnRoute();
+            $this->registerEmailRoute();
         });
     }
 
@@ -123,8 +130,22 @@ class AgentsServiceProvider extends PackageServiceProvider
             }
         }
 
-        Route::get(trim((string) config('packstub-agents.chat.path', 'agents'), '/').'/chat/{conversation}/turn', TurnController::class)
-            ->middleware((array) config('packstub-agents.chat.middleware', ['web', 'auth']))
-            ->name('packstub-agents.turn');
+        $path = trim((string) config('packstub-agents.chat.path', 'agents'), '/');
+        $middleware = (array) config('packstub-agents.chat.middleware', ['web', 'auth']);
+
+        Route::get($path.'/chat/{conversation}/turn', TurnController::class)->middleware($middleware)->name('packstub-agents.turn');
+        Route::get($path.'/chat/{conversation}/stream', TurnStreamController::class)->middleware($middleware)->name('packstub-agents.stream');
+    }
+
+    /** POST {chat.path}/email — the inbound mail webhook, behind the shared secret (404 while the channel is off). */
+    protected function registerEmailRoute(): void
+    {
+        if (! $this->app->runningInConsole() && $this->app->routesAreCached()) {
+            return;
+        }
+
+        Route::post(trim((string) config('packstub-agents.chat.path', 'agents'), '/').'/email', EmailInboundController::class)
+            ->middleware([...(array) config('packstub-agents.email.middleware', ['api']), AuthenticateEmailWebhook::class])
+            ->name('packstub-agents.email');
     }
 }
