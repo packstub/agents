@@ -323,6 +323,7 @@ class AgentChat
                     'rating' => $feedback->get($m->id)?->rating,
                     'ratingNote' => $feedback->get($m->id)?->note,
                     'attachments' => array_map([AgentAttachments::class, 'describe'], AgentConversationStore::attachmentsOf($m->attachments)),
+                    'mentions' => AgentConversationStore::mentionsOf($m->meta), // the records the person mentioned: ref and label
                     'continuation' => $isContinuation, // a question sent by "Continue": a surface hides it
                     'continued' => $continued, // an answer that carries on the previous one
                     'versions' => $m->role === 'user' ? (int) ($versions[$m->id] ?? 0) : 0, // earlier answers to this question
@@ -605,11 +606,14 @@ class AgentChat
 
     /**
      * Ask a question, with the files the person attached (laravel/ai files, AgentAttachments::store() gives one
-     * per upload): the turn it became (null for an empty question or when the agent is off).
+     * per upload) and the records they mentioned (page-context refs such as "orders/12", typed as "@Order RO-00012"
+     * in a composer: the model reads each one's summary with the question): the turn it became (null for an
+     * empty question or when the agent is off).
      *
      * @param  list<File>  $attachments
+     * @param  list<string>  $mentions
      */
-    public function send(string $prompt, array $attachments = []): ?AgentTurn
+    public function send(string $prompt, array $attachments = [], array $mentions = []): ?AgentTurn
     {
         $prompt = trim($prompt);
 
@@ -617,9 +621,17 @@ class AgentChat
             return null;
         }
 
+        $mentioned = collect($mentions)
+            ->map(fn ($ref) => is_string($ref) && ($context = PageContext::resolve($ref)) ? ['ref' => $ref, 'label' => $context['label']] : null)
+            ->filter()
+            ->unique('ref')
+            ->values()
+            ->all();
+
         return $this->startTurn(array_filter([
             'prompt' => $prompt !== '' ? $prompt : __('(see the attached file)'),
             'attachments' => array_values(array_map(fn (File $file) => $file->toArray(), $attachments)),
+            'mentions' => $mentioned,
         ]));
     }
 

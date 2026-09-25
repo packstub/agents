@@ -106,6 +106,19 @@ class AgentConversationStore extends DatabaseConversationStore
     }
 
     /**
+     * The records a question mentioned ("@Order RO-00012"), as stored in its meta: ref and label.
+     *
+     * @return list<array{ref: string, label: string}>
+     */
+    public static function mentionsOf(mixed $meta): array
+    {
+        $meta = is_string($meta) ? json_decode($meta, true) : $meta;
+        $list = is_array($meta) ? ($meta['mentions'] ?? []) : [];
+
+        return is_array($list) ? array_values(array_filter($list, fn ($m) => is_array($m) && isset($m['ref'], $m['label']))) : [];
+    }
+
+    /**
      * The stored attachments of a message, as laravel/ai wrote them (a list of File::toArray arrays).
      *
      * @return list<array<string, mixed>>

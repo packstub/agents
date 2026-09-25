@@ -28,6 +28,7 @@ use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentModels;
 use Packstub\Agents\Support\AgentRuntime;
 use Packstub\Agents\Support\AgentTurns;
+use Packstub\Agents\Support\PageContext;
 use RuntimeException;
 use Throwable;
 
@@ -96,6 +97,26 @@ class RunAgentTurn implements ShouldQueue
         }
     }
 
+    /**
+     * The records a question mentioned, summarized for the model, or null without any.
+     *
+     * @param  list<array{ref: string, label: string}>  $mentions
+     */
+    public static function mentionsBlock(array $mentions): ?string
+    {
+        $lines = [];
+
+        foreach ($mentions as $mention) {
+            $context = is_array($mention) && isset($mention['ref']) ? PageContext::resolve((string) $mention['ref']) : null;
+
+            if ($context !== null) {
+                $lines[] = '- @'.$context['label'].' ('.$mention['ref'].'): '.json_encode($context['summary'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+        }
+
+        return $lines === [] ? null : "Records the person mentioned in the question (\"@name\" refers to these):\n".implode("\n", $lines);
+    }
+
     protected function run(AgentTurn $turn, AgentTurns $turns): void
     {
         $store = app(AgentConversationStore::class);
@@ -111,8 +132,13 @@ class RunAgentTurn implements ShouldQueue
             fn (bool $approve) => $approve ? Decision::approve() : Decision::reject(AgentTurns::rejectionResult()),
         )->all());
 
-        // The files the person attached to the question, as the provider reads them.
+        // The files the person attached to the question, as the provider reads them; the records they mentioned
+        // ride with the question as their summaries (the stored question keeps the words as typed).
         $attachments = AgentAttachments::rehydrate($turn->input['attachments'] ?? []);
+
+        if (is_string($input) && ($mentions = self::mentionsBlock((array) ($turn->input['mentions'] ?? []))) !== null) {
+            $input .= "\n\n".$mentions;
+        }
 
         if ($turn->decisions() !== null) {
             $pending = $store->pendingCalls($turn->conversation_id, $user);

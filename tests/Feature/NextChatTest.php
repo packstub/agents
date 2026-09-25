@@ -102,6 +102,26 @@ it('stores an attachment with the question, hands it to the provider, shows it i
     expect(Storage::disk('local')->exists($image->toArray()['path']))->toBeFalse();
 });
 
+it('sends the records a question mentions as their summaries, and shows them as chips', function () {
+    $user = $this->user();
+    actingAs($user);
+    [$alpha] = $this->widgets();
+    WidgetAgent::fake(['Alpha is live.']);
+
+    $chat = AgentChat::for($user);
+    $chat->send('Is @Widget Alpha live?', mentions: ["widgets/{$alpha->id}", 'widgets/999', 'nope']);
+
+    WidgetAgent::assertPrompted(fn ($prompt) => str_starts_with($prompt->prompt, 'Is @Widget Alpha live?')
+        && str_contains($prompt->prompt, 'Records the person mentioned')
+        && str_contains($prompt->prompt, "- @Widget Alpha (widgets/{$alpha->id}): {\"id\":{$alpha->id},\"name\":\"Alpha\"")
+        && ! str_contains($prompt->prompt, 'widgets/999'));
+
+    $messages = $chat->messages();
+    expect($messages[0]['text'])->toBe('Is @Widget Alpha live?') // stored as typed
+        ->and($messages[0]['mentions'])->toBe([['ref' => "widgets/{$alpha->id}", 'label' => 'Widget Alpha']])
+        ->and($messages[1]['mentions'])->toBe([]);
+});
+
 it('continues an answer the length limit cut short, hiding the continuation question', function () {
     $user = $this->user();
     actingAs($user);

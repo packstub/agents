@@ -122,7 +122,10 @@ class AgentTurns
                     Agents::agentClass(),
                     $turn->prompt(),
                     (array) ($turn->input['attachments'] ?? []),
-                    ($turn->input['continuation'] ?? false) ? ['continuation' => true] : [],
+                    array_filter([
+                        'continuation' => ($turn->input['continuation'] ?? false) ? true : null,
+                        'mentions' => ($turn->input['mentions'] ?? []) !== [] ? array_values((array) $turn->input['mentions']) : null,
+                    ], fn ($v) => $v !== null),
                 );
 
                 if ($decision !== null) {
