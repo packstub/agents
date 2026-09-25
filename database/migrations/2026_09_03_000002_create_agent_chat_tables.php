@@ -55,6 +55,8 @@ return new class extends Migration
             $table->unsignedBigInteger('user_id');
             $table->string('rating', 4); // up | down
             $table->string('comment', 1000)->nullable();
+            $table->string('note', 1000)->nullable(); // what the person said with the rating
+            $table->string('turn_id', 36)->nullable()->index(); // the turn that produced the answer
             $table->timestamps();
 
             $table->unique(['message_id', 'user_id']);

@@ -16,7 +16,9 @@ use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Prompts\AgentPrompt;
 use Laravel\Ai\Responses\Data\ToolResult;
 use Laravel\Ai\Storage\DatabaseConversationStore;
+use Packstub\Agents\Models\AgentAnswerVersion;
 use Packstub\Agents\Models\AgentMessageFeedback;
+use Packstub\Agents\Models\AgentPinnedConversation;
 use Packstub\Agents\Models\ConversationSummary;
 use Throwable;
 
@@ -58,8 +60,15 @@ class AgentConversationStore extends DatabaseConversationStore
         );
     }
 
-    /** Record a question before it is sent to the provider and return the message ID. */
-    public function storeQuestion(string $conversationId, object $participant, string $agentClass, string $content): string
+    /**
+     * Record a question before it is sent to the provider and return the message ID. $attachments are the stored
+     * files (laravel/ai's array form, File::toArray) the provider reads with it; $meta marks a continuation
+     * ("continue where you stopped"), which a surface shows as part of the answer above rather than a question.
+     *
+     * @param  list<array<string, mixed>>  $attachments
+     * @param  array<string, mixed>  $meta
+     */
+    public function storeQuestion(string $conversationId, object $participant, string $agentClass, string $content, array $attachments = [], array $meta = []): string
     {
         $messageId = (string) Str::uuid7();
         $now = now();
@@ -74,11 +83,11 @@ class AgentConversationStore extends DatabaseConversationStore
                 'agent' => $agentClass,
                 'role' => 'user',
                 'content' => $content,
-                'attachments' => '[]',
+                'attachments' => json_encode(array_values($attachments)),
                 'tool_calls' => '[]',
                 'tool_results' => '[]',
                 'usage' => '[]',
-                'meta' => '[]',
+                'meta' => json_encode($meta === [] ? [] : $meta),
                 'approval_state' => null,
             ],
         ));
@@ -86,6 +95,45 @@ class AgentConversationStore extends DatabaseConversationStore
         $this->touchConversation($conversationId, $now);
 
         return $messageId;
+    }
+
+    /** Whether a stored question is a continuation of the answer above it (sent by "Continue", not typed). */
+    public static function isContinuation(mixed $meta): bool
+    {
+        $meta = is_string($meta) ? json_decode($meta, true) : $meta;
+
+        return (bool) (is_array($meta) ? ($meta['continuation'] ?? false) : false);
+    }
+
+    /**
+     * The records a question mentioned ("@Order RO-00012"), as stored in its meta: ref and label.
+     *
+     * @return list<array{ref: string, label: string}>
+     */
+    public static function mentionsOf(mixed $meta): array
+    {
+        $meta = is_string($meta) ? json_decode($meta, true) : $meta;
+        $list = is_array($meta) ? ($meta['mentions'] ?? []) : [];
+
+        return is_array($list) ? array_values(array_filter($list, fn ($m) => is_array($m) && isset($m['ref'], $m['label']))) : [];
+    }
+
+    /**
+     * The stored attachments of a message, as laravel/ai wrote them (a list of File::toArray arrays).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function attachmentsOf(mixed $attachments): array
+    {
+        $list = is_string($attachments) ? json_decode($attachments, true) : $attachments;
+
+        return is_array($list) ? array_values(array_filter($list, 'is_array')) : [];
+    }
+
+    /** Rename a conversation (the person's own title; the provider no longer titles it). */
+    public function renameConversation(string $conversationId, string $title): void
+    {
+        $this->table($this->conversationsTable())->where('id', $conversationId)->update(['title' => Str::limit(trim($title), 100, ''), 'updated_at' => now()]);
     }
 
     /**
@@ -254,20 +302,73 @@ class AgentConversationStore extends DatabaseConversationStore
      * can be answered again — Regenerate, and Edit on the last question. The rolling summary is not touched:
      * it only ever covers rows older than the last exchange.
      */
-    public function dropMessagesAfter(string $conversationId, string $messageId): void
+    public function dropMessagesAfter(string $conversationId, string $messageId, bool $keepVersion = true): void
     {
-        $ids = $this->table($this->messagesTable())
+        $rows = $this->table($this->messagesTable())
             ->where('conversation_id', $conversationId)
             ->where('id', '>', $messageId)
-            ->pluck('id');
+            ->orderBy('id')
+            ->get();
 
-        if ($ids->isEmpty()) {
+        if ($rows->isEmpty()) {
             return;
         }
 
+        // The answer that goes is kept as a version of the question, so it can be read again or put back.
+        if ($keepVersion) {
+            $question = $this->table($this->messagesTable())->where('id', $messageId)->value('content');
+
+            AgentAnswerVersion::query()->create([
+                'conversation_id' => $conversationId,
+                'question_id' => $messageId,
+                'question' => (string) $question,
+                'rows' => $rows->map(fn ($row) => (array) $row)->all(),
+            ]);
+        }
+
+        $ids = $rows->pluck('id');
         AgentMessageFeedback::query()->whereIn('message_id', $ids)->delete();
         $this->table($this->messagesTable())->whereIn('id', $ids)->delete();
         $this->touchConversation($conversationId, now());
+    }
+
+    /**
+     * The earlier answers to a question (AgentAnswerVersion rows), oldest first.
+     *
+     * @return Collection<int, AgentAnswerVersion>
+     */
+    public function versionsOf(string $conversationId, string $questionId): Collection
+    {
+        return AgentAnswerVersion::query()->where('conversation_id', $conversationId)->where('question_id', $questionId)->orderBy('id')->get();
+    }
+
+    /**
+     * Put an earlier answer back: the rows after the question now become a version of their own, the chosen
+     * version's rows are restored as they were (a proposal still waiting then waits again), the question's text
+     * comes back with them, and the version row goes. False when the version is not this question's.
+     */
+    public function restoreVersion(string $conversationId, string $questionId, int $versionId): bool
+    {
+        $version = AgentAnswerVersion::query()->whereKey($versionId)->where('conversation_id', $conversationId)->where('question_id', $questionId)->first();
+
+        if (! $version) {
+            return false;
+        }
+
+        $this->dropMessagesAfter($conversationId, $questionId);
+
+        foreach ($version->rows as $row) {
+            $this->table($this->messagesTable())->insert($row);
+        }
+
+        if ($version->question !== '') {
+            $this->table($this->messagesTable())->where('id', $questionId)->update(['content' => $version->question]);
+        }
+
+        $version->delete();
+        $this->touchConversation($conversationId, now());
+
+        return true;
     }
 
     /** Replace the text of a recorded question (Edit on the last question). */
@@ -680,9 +781,15 @@ class AgentConversationStore extends DatabaseConversationStore
     /** Delete a conversation with its messages, their ratings and its rolling summary; its turns stay in the operator's log. */
     public function deleteConversation(string $conversationId): void
     {
+        foreach ($this->table($this->messagesTable())->where('conversation_id', $conversationId)->where('role', 'user')->pluck('attachments') as $attachments) {
+            AgentAttachments::delete(self::attachmentsOf($attachments));
+        }
+
         AgentMessageFeedback::query()->whereIn('message_id', ConversationMessage::query()->where('conversation_id', $conversationId)->select('id'))->delete();
         ConversationMessage::query()->where('conversation_id', $conversationId)->delete();
         ConversationSummary::query()->where('conversation_id', $conversationId)->delete();
+        AgentAnswerVersion::query()->where('conversation_id', $conversationId)->delete();
+        AgentPinnedConversation::query()->where('conversation_id', $conversationId)->delete();
         Conversation::query()->whereKey($conversationId)->delete();
     }
 }

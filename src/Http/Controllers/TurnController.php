@@ -4,9 +4,7 @@ namespace Packstub\Agents\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Laravel\Ai\Models\Conversation;
 use Packstub\Agents\Support\AgentTurns;
-use Packstub\Agents\Support\Markdown;
 
 /**
  * What the chat page polls while an answer is produced (and, slowly, while
@@ -23,28 +21,10 @@ class TurnController
         // Read by name: in a panel with tenancy the first route parameter is the tenant.
         $conversation = (string) $request->route('conversation');
 
-        $updated = Conversation::query()
-            ->whereKey($conversation)
-            ->where('participant_type', auth()->user()?->getMorphClass())
-            ->where('participant_id', auth()->id())
-            ->value('updated_at');
-
-        abort_if($updated === null, 404);
-
-        $turns->reconcile($conversation);
-        $active = $turns->active($conversation);
-        $latest = $turns->latest($conversation);
+        abort_if(! $turns->owned($conversation, auth()->user()), 404);
 
         return response()
-            ->json([
-                'active' => $active ? [
-                    'id' => $active->id,
-                    'status' => $active->status,
-                    'statusText' => $turns->statusText($active),
-                    'html' => filled($active->text) ? Markdown::render((string) $active->text) : '',
-                ] : null,
-                'version' => md5(json_encode([(string) $updated, $latest?->id, $latest?->status, $turns->queued($conversation)->pluck('id')->all()])),
-            ])
+            ->json($turns->state($conversation))
             ->header('Cache-Control', 'no-store');
     }
 }

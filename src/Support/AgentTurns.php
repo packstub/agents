@@ -11,6 +11,7 @@ use InvalidArgumentException;
 use Laravel\Ai\Models\Conversation;
 use Laravel\Ai\Responses\Data\FinishReason;
 use Laravel\Ai\Streaming\Events\StreamEnd;
+use Packstub\Agents\Events\TurnEnded;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Models\AgentTurn;
@@ -115,7 +116,17 @@ class AgentTurns
                     $store->declinePending($conversationId, $participant, self::supersededResult());
                 }
 
-                $messageId = $store->storeQuestion($conversationId, $participant, Agents::agentClass(), $turn->prompt());
+                $messageId = $store->storeQuestion(
+                    $conversationId,
+                    $participant,
+                    Agents::agentClass(),
+                    $turn->prompt(),
+                    (array) ($turn->input['attachments'] ?? []),
+                    array_filter([
+                        'continuation' => ($turn->input['continuation'] ?? false) ? true : null,
+                        'mentions' => ($turn->input['mentions'] ?? []) !== [] ? array_values((array) $turn->input['mentions']) : null,
+                    ], fn ($v) => $v !== null),
+                );
 
                 if ($decision !== null) {
                     $turn->forceFill(['input' => ['decisions' => array_fill_keys(array_keys($pending), $decision), 'said' => $turn->prompt()]]);
@@ -145,15 +156,18 @@ class AgentTurns
             'locale' => $turn->locale,
         ]);
 
-        $this->dispatch($job);
+        $this->dispatch($job, (bool) ($turn->input['sync'] ?? false));
 
         return $turn->refresh();
     }
 
-    /** Hand the job over as chat.driver says: to a worker, or run it here inside the request. */
-    protected function dispatch(RunAgentTurn $job): void
+    /**
+     * Hand the job over as chat.driver says: to a worker, or run it here inside the request. A turn whose input
+     * carries `sync` (AgentRun, the email channel, a command) runs here whatever the driver.
+     */
+    protected function dispatch(RunAgentTurn $job, bool $sync = false): void
     {
-        $driver = config('packstub-agents.chat.driver', 'queue');
+        $driver = $sync ? 'sync' : config('packstub-agents.chat.driver', 'queue');
 
         match ($driver) {
             'queue' => dispatch($job)
@@ -180,10 +194,15 @@ class AgentTurns
         return $claimed === 1;
     }
 
-    /** What the answer looks like so far, for the page. */
-    public function snapshot(AgentTurn $turn, ?string $text, ?string $statusText): void
+    /**
+     * What the answer looks like so far, for the page: the text, the status line, and the tools called so far
+     * (names, in call order) so a surface can list them while the turn runs.
+     *
+     * @param  list<string>|null  $tools
+     */
+    public function snapshot(AgentTurn $turn, ?string $text, ?string $statusText, ?array $tools = null): void
     {
-        $turn->forceFill(['text' => $text, 'status_text' => $statusText, 'updated_at' => now()])->save();
+        $turn->forceFill(['text' => $text, 'status_text' => $statusText, 'updated_at' => now()] + ($tools === null ? [] : ['tool_calls' => $tools]))->save();
     }
 
     public function requestStop(AgentTurn $turn): void
@@ -215,6 +234,8 @@ class AgentTurns
             },
         ];
 
+        $metrics['cost'] = AgentPricing::cost($metrics['model_name'] ?? $turn->model_name, $metrics['usage'] ?? $turn->usage);
+
         $turn->forceFill($metrics + [
             'status' => $status,
             'error' => $error,
@@ -225,6 +246,8 @@ class AgentTurns
         ])->save();
 
         $this->log($turn);
+
+        TurnEnded::dispatch($turn);
     }
 
     /** The turn's record as one log line, on packstub-agents.log.channel (nothing when it is null). */
@@ -266,9 +289,46 @@ class AgentTurns
             'reasoning_tokens' => $usage['reasoning_tokens'] ?? null,
             'tool_calls' => $tools,
             'duration_ms' => $turn->duration_ms,
+            'cost' => $turn->cost,
             'finish_reason' => $turn->finish_reason,
             'error' => $turn->error,
         ]);
+    }
+
+    /** Whether the conversation is the person's (what the poll and stream endpoints check before answering). */
+    public function owned(string $conversationId, ?object $participant): bool
+    {
+        return $participant !== null && Conversation::query()
+            ->whereKey($conversationId)
+            ->where('participant_type', Conversation::participantType($participant))
+            ->where('participant_id', Conversation::participantKey($participant))
+            ->exists();
+    }
+
+    /**
+     * What a chat surface reads while an answer is produced — the poll endpoint's payload, and each event of the
+     * stream: the running turn (its status line, the answer so far rendered, the tools called so far) and a version
+     * stamp that changes whenever the conversation did (another tab, the job finishing, a follow-up queued).
+     *
+     * @return array{active: ?array{id: string, status: string, statusText: string, html: string, tools: list<string>}, version: string}
+     */
+    public function state(string $conversationId): array
+    {
+        $this->reconcile($conversationId);
+        $active = $this->active($conversationId);
+        $latest = $this->latest($conversationId);
+        $updated = Conversation::query()->whereKey($conversationId)->value('updated_at');
+
+        return [
+            'active' => $active ? [
+                'id' => $active->id,
+                'status' => $active->status,
+                'statusText' => $this->statusText($active),
+                'html' => filled($active->text) ? Markdown::render((string) $active->text) : '',
+                'tools' => array_map(fn (string $name) => Str::headline($name), $active->tool_calls ?? []),
+            ] : null,
+            'version' => md5(json_encode([(string) $updated, $latest?->id, $latest?->status, $this->queued($conversationId)->pluck('id')->all()])),
+        ];
     }
 
     /** The turn the page attaches to: pending or running, oldest first. */

@@ -42,6 +42,26 @@ Queue::pushed(RunAgentTurn::class)->first()->handle(app(AgentTurns::class));
 
 **In a Filament panel**, [Filament Agents](https://packstub.dev/docs/filament-agents/testing) drives the same turns through its chat page with Livewire's `livewire(Chat::class)`.
 
+## Evals
+
+`Packstub\Agents\Testing\AgentEval` asks as a person with the provider faked step by step and asserts on what the agent did — which tools it called with which arguments, what it proposed, what it answered. The whole engine runs (the budget, your middleware, the tools, the conversation store), so a broken tool schema, a wrong ability or a prompt that stopped calling the overview tool fails here before it fails in front of a person:
+
+```php
+use Laravel\Ai\Responses\Data\ToolCall;
+use Packstub\Agents\Testing\AgentEval;
+
+AgentEval::as($user)->in($team)
+    ->expecting([new ToolCall('c1', 'search-orders', ['filters' => ['status' => ['placed']]]), 'Two orders are waiting.'])
+    ->ask('Which orders are waiting?')
+    ->assertOk()
+    ->assertCalled('search-orders', ['filters' => ['status' => ['placed']]]) // a subset match on the arguments
+    ->assertCalledInOrder(['search-orders'])
+    ->assertNotCalled('confirm-order')
+    ->assertAnswerContains('two');
+```
+
+`expecting()` takes what the faked provider answers next, in order: a string is an answer, a `ToolCall` makes the agent run that tool (a write tool becomes a proposal and pauses the turn), a `TextResponse` carries usage, a closure may throw. `ask()` returns an `AgentEvalResult` — `text()`, `toolCalls()` (name, arguments, `readOnly`, `pending`, `rejected`, `result`), `proposals()`, the `answer` (an `AgentAnswer`) — with `assertOk()`, `assertFailed()`, `assertRefused()`, `assertAnswerContains()`, `assertAnswerNotContains()`, `assertCalled()`, `assertNotCalled()`, `assertCalledInOrder()`, `assertProposed()`, `assertNothingProposed()`, `assertNoToolCalls()` and `assertTurnTools()`. `then()` hands the eval back for the next question on the same conversation, `decide($callId, true)` approves a waiting proposal. Under a faked provider laravel/ai does not run the approved tool (test the tool's own `run()` directly, as below); the decision still reaches the prompt and the answer that follows is asserted like any other.
+
 ## Driving a tool
 
 ```php

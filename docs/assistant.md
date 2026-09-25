@@ -45,9 +45,32 @@ $chat->rate($messageId, 'up');                      // a message outside this ch
 $chat->history();                                    // the context meter: share of the window, breakdown, what the chat cost
 $chat->compress(); $chat->continueInNew();           // fold the older part into the summary (false: nothing older; ChatBusy while a turn runs); start a new chat from a summary of this one
 $chat->suggestions(); $chat->title(); $chat->owns($id); $chat->ownConversations();
+$chat->send('What is this?', [$image]);            // with attachments (below)
+$chat->continueAnswer();                             // carry on an answer the length limit cut short
+$chat->versions($questionId); $chat->showVersion($questionId, $versionId); // earlier answers to a question, and put one back
+$chat->rename('Live widgets'); $chat->pin(); $chat->unpin(); $chat->pinned(); AgentChat::pinnedIds($user);
+$chat->rate($messageId, 'down', 'Beta is retired'); // with a note
+$chat->transcript();                                 // the chat as Markdown, for an export
+AgentChat::search($user, 'alpha');                   // the person's chats whose messages or title match, with a snippet
 ```
 
-`messages()` returns the conversation oldest first, each with `role`, `text`, `html` (an answer rendered), `tools` — every call with its `question` (the proposal as a sentence), `pending`, `held` (a decision waiting for the other proposal of the same answer), `rejected`, `result`, `readOnly` — `charts` (Chart.js payloads from `chart` results), `tables` (a `show-table` result, when the app registers agent resources), `rating`, `stopped`, `cutShort`, `answeredBy`, and what a surface may offer on it: `unanswered` (a Retry), `editable` (Edit on the last question), `regenerable` (Regenerate on the last answer), only while nothing runs or waits — a decision held for the other proposal of its answer keeps the chat busy too, so the paused answer cannot be edited or produced again under it. Poll the [turn endpoint](#how-a-turn-runs) for the running answer, then read `messages()` again. On the sync driver the turn a method returns has already run, so its `status` and `error` say how it went. The static helpers phrase what a surface shows: `question($tool, $name, $arguments)`, `resultText($result)`, `chartFromResult()`, `tableFromResult()`, `cutShortText($reason)`, `duration($ms)`, `breakdownLabels()`, `modelMenu()` (the picker's entries by provider, with the model name under a label) and `writeToolNames()`.
+`messages()` returns the conversation oldest first, each with `role`, `text`, `html` (an answer rendered), `tools` — every call with its `question` (the proposal as a sentence), `pending`, `held` (a decision waiting for the other proposal of the same answer), `rejected`, `result`, `readOnly` — `charts` (Chart.js payloads from `chart` results), `tables` (a `show-table` result, when the app registers agent resources), `attachments` (the files sent with a question: `name`, `mime`, `image`, `url` when the disk gives one), `rating` and `ratingNote`, `versions` (how many earlier answers a question has), `continuation` (a question sent by Continue, which a surface hides) and `continued` (an answer that carries on the one above), `stopped`, `cutShort`, `answeredBy`, and what a surface may offer on it: `unanswered` (a Retry), `editable` (Edit on the last question), `regenerable` (Regenerate on the last answer), `continuable` (Continue, when the model's length limit cut the last answer), only while nothing runs or waits — a decision held for the other proposal of its answer keeps the chat busy too, so the paused answer cannot be edited or produced again under it. Poll or stream the [turn endpoint](#live-updates) for the running answer, then read `messages()` again. On the sync driver the turn a method returns has already run, so its `status` and `error` say how it went. The static helpers phrase what a surface shows: `question($tool, $name, $arguments)`, `resultText($result)`, `chartFromResult()`, `tableFromResult()`, `cutShortText($reason)`, `duration($ms)`, `breakdownLabels()`, `modelMenu()` (the picker's entries by provider, with the model name under a label) and `writeToolNames()`.
+
+### Live updates
+
+While a turn runs a surface reads the same state two ways. `GET {chat.path}/chat/{conversation}/turn` returns it once (`AgentTurns::state($conversation)` in code): `{"active": {"id", "status", "statusText", "html", "tools"} | null, "version"}` — the running turn with its status line, the answer so far rendered, the tools called so far, and a version stamp that changes whenever the conversation did. `GET {chat.path}/chat/{conversation}/stream` pushes the same object as a server-sent `turn` event every time it changes (checked every `chat.stream_interval` milliseconds), a comment line as a heartbeat otherwise, then an `end` event once nothing runs; it closes after `chat.stream_seconds` and the browser's `EventSource` reconnects on its own. Pass `?version=` with the stamp the client last saw to skip an event that says nothing new. Filament Agents streams, and polls every `chat.poll_interval` milliseconds when the stream cannot be held open.
+
+### Attachments
+
+A person can attach files to a question — a screenshot, an invoice, a CSV — and the provider reads them with it. `AgentAttachments::store($uploadedFile)` puts an upload on the attachments disk (config `chat.attachments`: the disk, the directory, the size cap, the accepted MIME types) and returns the laravel/ai file to pass to `send()`: an image for `image/*`, a document otherwise — check which your provider reads. The files are stored with the question (the provider reads them again when the history is replayed), described by `messages()` for a thumbnail or a link (`AgentAttachments::describe()`; `temporary_urls` asks the disk for signed URLs), and deleted with the conversation. `AgentAttachments::accepts($mime)`, `maxKilobytes()` and `maxPerQuestion()` are the limits a composer shows. A question with a file and no words goes as "(see the attached file)".
+
+### Continue, versions, rename, pin, search, export
+
+- **Continue.** When the model's length limit cut an answer (`cutShort` is `length`), `continueAnswer()` sends a continuation turn: its question is stored with a `continuation` mark so a surface hides it, and the answer that follows is `continued` — shown as the rest of the one above.
+- **Versions.** Regenerate and Edit no longer lose the earlier answer: the rows that followed the question are kept in `agent_answer_versions` (`AgentAnswerVersion`) and `messages()` counts them on the question as `versions`. `versions($questionId)` lists them (text, HTML, when), `showVersion($questionId, $versionId)` puts one back — the current answer becomes a version in turn, the question's text comes back with it (an edit rewrites the question), and the chat carries on from the restored answer. Only the last question's answers can be put back, and only while nothing runs.
+- **Rename and pin.** `rename($title)` gives a chat the person's own title; `pin()` / `unpin()` keep it at the top of their list (`agent_pinned_conversations`; `AgentChat::pinnedIds($user)` for the list order).
+- **Search.** `AgentChat::search($user, $words)` finds the person's chats whose messages or title contain the words, newest first, with a snippet of the first matching message.
+- **Export.** `transcript()` is the chat as Markdown: the title, every question and answer with its time, proposals as one line each, attachments named.
 
 ## Long chats
 
@@ -59,9 +82,38 @@ A chat can go on as long as you like; what changes is what the model reads. Each
 
 When the agent calls a write tool, laravel/ai pauses the turn with the tool's name and arguments as a pending approval. The turn resumes with the decision (`AgentTurns::enqueue()` with the approval decisions in its input instead of a prompt) and the tool either runs or reports that it was rejected (`AgentTurns::rejectionResult()`). The generic rules ask the model not to claim something was done until the tool result confirms it and never to chain destructive changes with anything else in one turn. A chat surface shows the arguments, not the model's summary of them, so a person can see a wrong target before it runs.
 
+### Events
+
+The engine fires four events (`Packstub\Agents\Events`), each carrying the `AgentTurn`: `TurnStarted` once the job took the turn and is about to call the provider; `ToolCalled` for every tool the model calls, with the call id, the tool name and the arguments as the model sent them (a read tool runs at once, a write tool becomes a proposal); `ProposalDecided` when a decision turn is about to apply an approval or a rejection, with the call as it was proposed; `TurnEnded` when the turn ended — done, stopped or failed — with the row carrying provider, model, usage, cost, tools, duration and finish reason. An audit trail, a metrics sink, a Slack notification on a failed turn or a rejected proposal hang off these; laravel/ai's own `ToolInvoked` and `ToolApprovalResolved` fire as well.
+
 ### When the agent is off
 
 `AgentModels::enabled()` is false — and a chat surface hides itself — when there is no provider key for the configured provider, for the provider of any catalog entry or from the workspace, when `AGENT_ENABLED=false`, or when the workspace is switched off in `agent_limits`. The MCP endpoint is independent of that.
+
+## The assistant without a chat
+
+`Packstub\Agents\Support\AgentRun` asks a question as a person and returns the answer in the same call — from a scheduled command, a job, a webhook, a test — whatever `chat.driver` says:
+
+```php
+use Packstub\Agents\Support\AgentRun;
+
+$answer = AgentRun::as($user)->in($team)->model('fast')->ask('Which orders are waiting for a phone call?');
+
+$answer->ok(); $answer->text; $answer->html(); $answer->tools(); $answer->turn; $answer->conversation;
+$answer->proposals; // write calls the model proposed: they wait in the chat for the person's decision
+```
+
+The turn goes through everything a chat turn does — the budget, your middleware, the tools the person's role allows, the record on `agent_turns` — and lands in a conversation the person can open later; `continuing($conversationId)` adds to one of theirs, `context('orders/12')` asks about a record, `with([$file])` attaches files. A write tool the model proposes is not run: nobody is watching, so the proposal waits in the chat. The morning report is one line in the scheduler:
+
+```php
+Schedule::call(fn () => Mail::to($owner)->send(new DailyBriefing(AgentRun::as($owner)->ask('What needs attention today?'))))->dailyAt('07:30');
+```
+
+`php artisan packstub-agents:run "What needs attention today?" --user=ada@example.com` does the same from the console (`--tenant=`, `--model=`, `--context=`, `--conversation=`; `--json` prints the record: status, text, tools, proposals, usage, cost).
+
+## The assistant by email
+
+With `AGENT_EMAIL=true` and a shared secret in `AGENT_EMAIL_SECRET`, `POST {chat.path}/email` takes the inbound-mail webhook of your mail provider (Postmark, Mailgun, SES, your own script) with the secret in the `X-Agent-Secret` header. The sender must be a person of the app — found by email on the guard's user provider, or by `Agents::participantByEmailUsing(fn (string $email) => …)` — and the question is asked as them through `AgentRun`; the answer goes back as a reply (`AgentAnswerMail`, the answer rendered, proposals listed as waiting for a decision in the chat, a "reply to continue" line). The reply's subject carries a tag (`[chat 0199a1b2]`) and its Message-ID names the conversation, so a reply — by subject or by threading — continues the same chat; a mail from an address that is nobody's is dropped without an answer. The controller reads the plain fields (`from`, `subject`, `text`, `message_id`, `in_reply_to`, `references`, `tenant` for a workspace slug) and the usual provider names (`From`, `Subject`, `TextBody` / `stripped-text` / `body-plain`, `MessageID`); quoted history and signatures are cut before the question is sent. `EmailChannel::receive(InboundEmail::fromArray($payload))` is the same from your own code.
 
 ## The Agent class
 

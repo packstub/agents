@@ -37,6 +37,7 @@ return new class extends Migration
             $table->json('usage')->nullable(); // laravel/ai's Usage as an array
             $table->json('tool_calls')->nullable(); // the tool names, in call order
             $table->unsignedInteger('duration_ms')->nullable();
+            $table->decimal('cost', 12, 6)->nullable(); // in config pricing.currency, from the usage and the model's prices; null when unknown
             $table->string('finish_reason', 24)->nullable(); // stop | length | content_filter | dropped | stopped | refused | failed | …
             $table->timestamp('stop_requested_at')->nullable();
             $table->timestamp('started_at')->nullable();

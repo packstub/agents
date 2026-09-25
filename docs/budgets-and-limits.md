@@ -74,8 +74,12 @@ Schedule::command('model:prune', ['--model' => [\Packstub\Agents\Models\AgentTur
 
 The rows live with the conversations (`ai.conversations.connection`); in a database-per-tenant app that is the tenant database.
 
+### Cost in money
+
+Fill `pricing.models` with your provider's prices per million tokens by model name (a key is also a prefix, so `claude-opus-5` covers every dated variant): `in` and `out` for the prompt and the answer (reasoning tokens count as out), `cache_read` and `cache_write` for the cached prefix where the provider reports it. When a turn ends its `cost` column is computed from its usage (`AgentPricing::cost($model, $usage)`), in `pricing.currency` (`AGENT_PRICING_CURRENCY`, USD); a model without a price leaves it `null` and the tokens alone show. `AgentChat::history()['turns']['cost']` sums it over a chat, `AgentPricing::format($cost)` prints it ("$0.0123"). The package ships no prices, since they change without notice.
+
 ### The log line
 
-Set `log.channel` (`AGENT_LOG_CHANNEL`) to a channel from `config/logging.php` and every ended turn writes one info line there — `Agent turn done: anthropic/claude-opus-5, 1,240 tokens in, 310 out, 2 tool calls, 4.2 s, ended stop` — with the whole record in the context (`turn`, `conversation`, `user`, `tenant`, `panel`, `status`, `provider`, `model`, `model_key`, the five token counts, `tool_calls`, `duration_ms`, `finish_reason`, `error`). Point it at a JSON channel for your log platform, or at `stack` to keep it with the app log. `null` (the default) logs nothing; the row carries the record either way.
+Set `log.channel` (`AGENT_LOG_CHANNEL`) to a channel from `config/logging.php` and every ended turn writes one info line there — `Agent turn done: anthropic/claude-opus-5, 1,240 tokens in, 310 out, 2 tool calls, 4.2 s, ended stop` — with the whole record in the context (`turn`, `conversation`, `user`, `tenant`, `panel`, `status`, `provider`, `model`, `model_key`, the five token counts, `tool_calls`, `duration_ms`, `cost`, `finish_reason`, `error`). Point it at a JSON channel for your log platform, or at `stack` to keep it with the app log. `null` (the default) logs nothing; the row carries the record either way.
 
 For anything beyond that — an audit trail with the prompt, redaction, a plan check — write a [middleware](assistant.md#middleware) and read the response in its `then()` callback.

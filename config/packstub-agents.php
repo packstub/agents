@@ -115,8 +115,26 @@ return [
         // How long a turn may wait for a worker to take it, in seconds, before the status line says none has (with the
         // command to run, or the sync driver). Only the queue driver waits.
         'worker_wait' => (int) env('AGENT_WORKER_WAIT', 10),
-        // How often the page asks for the answer so far while a turn runs, in milliseconds.
+        // How often the page asks for the answer so far while a turn runs, in milliseconds — the fallback when the
+        // browser cannot hold the event stream open. The stream endpoint (GET …/chat/{conversation}/stream) pushes
+        // every change instead, checking the row every stream_interval milliseconds and closing after stream_seconds
+        // (the browser reconnects on its own).
         'poll_interval' => (int) env('AGENT_POLL_INTERVAL', 600),
+        'stream_interval' => (int) env('AGENT_STREAM_INTERVAL', 150),
+        'stream_seconds' => (int) env('AGENT_STREAM_SECONDS', 55),
+        // Files a person attaches to a question (a screenshot, an invoice, a CSV). Stored on this disk under this
+        // directory and sent to the provider with the question; deleted with the conversation. Images go as images,
+        // everything else as a document — check what your provider reads. temporary_urls asks the disk for signed
+        // URLs (S3) when the chat shows a thumbnail.
+        'attachments' => [
+            'enabled' => (bool) env('AGENT_ATTACHMENTS', true),
+            'disk' => env('AGENT_ATTACHMENTS_DISK'), // null = the default filesystem disk
+            'directory' => 'agent-attachments',
+            'max_kb' => (int) env('AGENT_ATTACHMENTS_MAX_KB', 10240),
+            'max_files' => 5,
+            'mimes' => ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain', 'text/csv', 'text/markdown', 'application/json'],
+            'temporary_urls' => (bool) env('AGENT_ATTACHMENTS_TEMPORARY_URLS', false),
+        ],
         // Without a panel, the poll endpoint (GET {path}/chat/{conversation}/turn) is registered here, under this
         // middleware; the person must be the conversation's participant. A panel that shows the chat registers its own.
         'path' => 'agents',
@@ -124,6 +142,30 @@ return [
         // Ended turns (the per-turn record: model, tokens, duration, how it ended) are kept this many days for the
         // operator's AI turns page; null keeps them forever. Pruned by `model:prune --model=Packstub\\Agents\\Models\\AgentTurn`.
         'keep_turns_days' => env('AGENT_KEEP_TURNS_DAYS', 90),
+    ],
+
+    // What a turn cost in money, from its token usage: prices per million tokens by model name (a key is also a
+    // prefix, so 'claude-opus-5' covers every dated variant). The package ships no prices — they change without
+    // notice — so the cost stays null, and the tokens alone show, until you fill this in from your provider's
+    // price list. `in` and `out` are the prompt and the answer (reasoning tokens count as out), `cache_read` and
+    // `cache_write` the cached prefix where the provider reports it (else they cost `in`).
+    'pricing' => [
+        'currency' => env('AGENT_PRICING_CURRENCY', 'USD'),
+        'models' => [
+            // 'claude-opus-5' => ['in' => 15, 'out' => 75, 'cache_read' => 1.5, 'cache_write' => 18.75],
+            // 'gpt-5' => ['in' => 1.25, 'out' => 10, 'cache_read' => 0.125],
+        ],
+    ],
+
+    // The assistant by email: an inbound mail webhook (Postmark, Mailgun, SES, your own) posts the message to
+    // POST {chat.path}/email with this secret in the X-Agent-Secret header; the sender must be a person of the app
+    // (found by email on the guard's provider, or by Agents::participantByEmailUsing()), the answer goes back as a
+    // reply, and a reply to that mail continues the same chat. Off until a secret is set.
+    'email' => [
+        'enabled' => (bool) env('AGENT_EMAIL', false),
+        'secret' => env('AGENT_EMAIL_SECRET'),
+        'from' => env('AGENT_EMAIL_FROM'), // null = the app's mail.from
+        'middleware' => ['api'],
     ],
 
     // One log line per turn — who asked, the provider and model that answered, tokens in and out, the tools called,

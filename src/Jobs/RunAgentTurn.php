@@ -17,13 +17,18 @@ use Laravel\Ai\Streaming\Events\StreamStart;
 use Laravel\Ai\Streaming\Events\TextDelta;
 use Laravel\Ai\Streaming\Events\ToolCall;
 use Laravel\Ai\Streaming\Events\ToolResult;
+use Packstub\Agents\Events\ProposalDecided;
+use Packstub\Agents\Events\ToolCalled;
+use Packstub\Agents\Events\TurnStarted;
 use Packstub\Agents\Exceptions\TurnRefused;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Models\AgentTurn;
+use Packstub\Agents\Support\AgentAttachments;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentModels;
 use Packstub\Agents\Support\AgentRuntime;
 use Packstub\Agents\Support\AgentTurns;
+use Packstub\Agents\Support\PageContext;
 use RuntimeException;
 use Throwable;
 
@@ -92,6 +97,26 @@ class RunAgentTurn implements ShouldQueue
         }
     }
 
+    /**
+     * The records a question mentioned, summarized for the model, or null without any.
+     *
+     * @param  list<array{ref: string, label: string}>  $mentions
+     */
+    public static function mentionsBlock(array $mentions): ?string
+    {
+        $lines = [];
+
+        foreach ($mentions as $mention) {
+            $context = is_array($mention) && isset($mention['ref']) ? PageContext::resolve((string) $mention['ref']) : null;
+
+            if ($context !== null) {
+                $lines[] = '- @'.$context['label'].' ('.$mention['ref'].'): '.json_encode($context['summary'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+        }
+
+        return $lines === [] ? null : "Records the person mentioned in the question (\"@name\" refers to these):\n".implode("\n", $lines);
+    }
+
     protected function run(AgentTurn $turn, AgentTurns $turns): void
     {
         $store = app(AgentConversationStore::class);
@@ -107,9 +132,26 @@ class RunAgentTurn implements ShouldQueue
             fn (bool $approve) => $approve ? Decision::approve() : Decision::reject(AgentTurns::rejectionResult()),
         )->all());
 
+        // The files the person attached to the question, as the provider reads them; the records they mentioned
+        // ride with the question as their summaries (the stored question keeps the words as typed).
+        $attachments = AgentAttachments::rehydrate($turn->input['attachments'] ?? []);
+
+        if (is_string($input) && ($mentions = self::mentionsBlock((array) ($turn->input['mentions'] ?? []))) !== null) {
+            $input .= "\n\n".$mentions;
+        }
+
+        if ($turn->decisions() !== null) {
+            $pending = $store->pendingCalls($turn->conversation_id, $user);
+
+            foreach ($turn->decisions() as $callId => $approved) {
+                ProposalDecided::dispatch($turn, (string) $callId, (string) ($pending[$callId]['name'] ?? ''), (array) ($pending[$callId]['arguments'] ?? []), (bool) $approved);
+            }
+        }
+
         $agent = Agents::agent($turn->context, $turn->model)->continue($turn->conversation_id, as: $user);
         $turns->snapshot($turn, null, __('Thinking…'));
         $store->answering($turn->message_id);
+        TurnStarted::dispatch($turn);
 
         $buffer = '';
         $stopped = false;
@@ -140,7 +182,7 @@ class RunAgentTurn implements ShouldQueue
             // The provider list: the first choice, then the failover providers (AGENT_FAILOVER), each with its own model.
             // laravel/ai moves down the list when a provider refuses the turn before anything streamed and fires
             // Laravel\Ai\Events\AgentFailedOver; the stream's start says who took it.
-            $response = $agent->withModel($resolved['model'])->withModels($resolved['providers'])->stream($input, provider: $resolved['providers']);
+            $response = $agent->withModel($resolved['model'])->withModels($resolved['providers'])->stream($input, attachments: $attachments, provider: $resolved['providers']);
 
             $sinceWrite = 0;
             $lastCheck = 0.0;
@@ -166,7 +208,8 @@ class RunAgentTurn implements ShouldQueue
                 } elseif ($event instanceof ToolCall) {
                     $tools[] = $event->toolCall->name;
                     $status = __(':tool…', ['tool' => Str::headline($event->toolCall->name)]);
-                    $turns->snapshot($turn, $buffer, $status);
+                    $turns->snapshot($turn, $buffer, $status, $tools);
+                    ToolCalled::dispatch($turn, $event->toolCall->id, $event->toolCall->name, $event->toolCall->arguments);
                     $wrote = true;
                 } elseif ($event instanceof ToolResult) {
                     $status = __('Thinking…');

@@ -6,16 +6,20 @@ use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Laravel\Ai\AiManager;
+use Laravel\Ai\Files\File;
 use Laravel\Ai\Models\Conversation;
 use Laravel\Ai\Models\ConversationMessage;
 use Packstub\Agents\Ai\ApprovableTool;
 use Packstub\Agents\Exceptions\ChatBusy;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Mcp\AgentTool;
+use Packstub\Agents\Models\AgentAnswerVersion;
 use Packstub\Agents\Models\AgentMessageFeedback;
+use Packstub\Agents\Models\AgentPinnedConversation;
 use Packstub\Agents\Models\AgentTurn;
 use Throwable;
 
@@ -33,6 +37,9 @@ class AgentChat
 {
     /** @var array{active: ?array, queued: list<array>, held: array<string, bool>, ended: ?array}|null */
     protected ?array $live = null;
+
+    /** Run every turn of this chat inside the call, whatever chat.driver says (AgentRun, the email channel, a command). */
+    protected bool $sync = false;
 
     public function __construct(
         protected Model $participant,
@@ -80,6 +87,14 @@ class AgentChat
         return $this->context;
     }
 
+    /** Run the turns of this chat inside the call that queues them, whatever chat.driver says. */
+    public function sync(bool $sync = true): static
+    {
+        $this->sync = $sync;
+
+        return $this;
+    }
+
     /** Whether the conversation belongs to the person. */
     public function owns(string $conversationId): bool
     {
@@ -90,6 +105,116 @@ class AgentChat
     public function title(): ?string
     {
         return $this->conversation ? $this->ownConversations()->whereKey($this->conversation)->value('title') : null;
+    }
+
+    /** Give the conversation a title of the person's own (nothing without a conversation or with an empty title). */
+    public function rename(string $title): bool
+    {
+        if (! $this->conversation || trim($title) === '') {
+            return false;
+        }
+
+        app(AgentConversationStore::class)->renameConversation($this->conversation, $title);
+
+        return true;
+    }
+
+    /** Pin the conversation to the top of the person's list. */
+    public function pin(): bool
+    {
+        if (! $this->conversation) {
+            return false;
+        }
+
+        AgentPinnedConversation::query()->firstOrCreate(['conversation_id' => $this->conversation], [
+            'participant_type' => $this->participant->getMorphClass(),
+            'participant_id' => $this->participant->getKey(),
+        ]);
+
+        return true;
+    }
+
+    public function unpin(): bool
+    {
+        return $this->conversation !== null && AgentPinnedConversation::query()->where('conversation_id', $this->conversation)->delete() > 0;
+    }
+
+    public function pinned(): bool
+    {
+        return $this->conversation !== null && AgentPinnedConversation::query()->where('conversation_id', $this->conversation)->exists();
+    }
+
+    /**
+     * The ids of the person's pinned conversations, most recently pinned first.
+     *
+     * @return list<string>
+     */
+    public static function pinnedIds(Model $participant): array
+    {
+        return AgentPinnedConversation::query()
+            ->where('participant_type', $participant->getMorphClass())
+            ->where('participant_id', $participant->getKey())
+            ->orderByDesc('id')
+            ->pluck('conversation_id')
+            ->all();
+    }
+
+    /**
+     * The person's conversations whose messages (or title) contain the words, newest first, each with a snippet of
+     * the first matching message: what a search box over the chats shows.
+     *
+     * @return Collection<int, array{conversation: string, title: string, snippet: ?string, at: Carbon}>
+     */
+    public static function search(Model $participant, string $query, int $limit = 20): Collection
+    {
+        $query = trim($query);
+
+        if ($query === '') {
+            return collect();
+        }
+
+        $own = Conversation::query()
+            ->where('participant_type', $participant->getMorphClass())
+            ->where('participant_id', $participant->getKey());
+
+        $matches = ConversationMessage::query()
+            ->whereIn('conversation_id', (clone $own)->select('id'))
+            ->where('content', 'like', '%'.str_replace(['%', '_'], ['\\%', '\\_'], $query).'%')
+            ->orderByDesc('id')
+            ->limit($limit * 10)
+            ->get(['conversation_id', 'content'])
+            ->unique('conversation_id');
+
+        $byTitle = (clone $own)->where('title', 'like', '%'.str_replace(['%', '_'], ['\\%', '\\_'], $query).'%')->pluck('id');
+        $ids = $matches->pluck('conversation_id')->merge($byTitle)->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $snippets = $matches->keyBy('conversation_id');
+
+        return (clone $own)->whereIn('id', $ids)->orderByDesc('updated_at')->limit($limit)->get()->map(fn (Conversation $c) => [
+            'conversation' => $c->id,
+            'title' => (string) $c->title,
+            'snippet' => isset($snippets[$c->id]) ? self::snippet((string) $snippets[$c->id]->content, $query) : null,
+            'at' => $c->updated_at,
+        ])->values();
+    }
+
+    /** A short piece of text around the first occurrence of the words. */
+    public static function snippet(string $text, string $query, int $width = 120): string
+    {
+        $text = trim((string) preg_replace('/\s+/u', ' ', $text));
+        $at = mb_stripos($text, $query);
+
+        if ($at === false || mb_strlen($text) <= $width) {
+            return Str::limit($text, $width);
+        }
+
+        $start = max(0, $at - (int) ($width / 3));
+
+        return ($start > 0 ? '…' : '').Str::limit(mb_substr($text, $start), $width);
     }
 
     /** What the chat is about when it was opened from a record (PageContext). */
@@ -154,19 +279,22 @@ class AgentChat
             return collect();
         }
 
-        $feedback = AgentMessageFeedback::query()->where('user_id', $this->participant->getKey())->pluck('rating', 'message_id');
+        $feedback = AgentMessageFeedback::query()->where('user_id', $this->participant->getKey())->get(['message_id', 'rating', 'note'])->keyBy('message_id');
+        $versions = AgentAnswerVersion::query()->where('conversation_id', $this->conversation)->selectRaw('question_id, count(*) as n')->groupBy('question_id')->pluck('n', 'question_id');
         $writeTools = self::writeTools();
         $idle = $this->idle();
         $held = $this->live()['held']; // call id => approved, for decisions waiting for the other proposal of the same answer
+        $continuation = false; // the answer after a "Continue" question carries on the one before it
 
         $list = ConversationMessage::query()
             ->where('conversation_id', $this->conversation)
-            ->orderBy('created_at')
-            ->orderByRaw("case when role = 'user' then 0 else 1 end") // a question and its answer can share a second
-            ->orderBy('id')
+            ->orderBy('id') // UUIDv7: the order the rows were written, to the millisecond (created_at has seconds)
             ->get()
-            ->map(function (ConversationMessage $m) use ($feedback, $writeTools, $held) {
+            ->map(function (ConversationMessage $m) use ($feedback, $versions, $writeTools, $held, &$continuation) {
                 $results = collect($m->tool_results ?? [])->keyBy('id');
+                $isContinuation = $m->role === 'user' && AgentConversationStore::isContinuation($m->meta);
+                $continued = $m->role === 'assistant' && $continuation;
+                $continuation = $isContinuation;
                 $everPaused = collect($m->approval_state['pending'] ?? [])->keys();
                 $pending = $everPaused->reject(fn ($id) => $results->has($id));
                 $charts = $results->map(fn ($r) => self::chartFromResult($r['result'] ?? null))->filter()->values()->all();
@@ -192,7 +320,13 @@ class AgentChat
                     ])->values()->all(),
                     'charts' => $charts,
                     'tables' => $tables,
-                    'rating' => $feedback->get($m->id),
+                    'rating' => $feedback->get($m->id)?->rating,
+                    'ratingNote' => $feedback->get($m->id)?->note,
+                    'attachments' => array_map([AgentAttachments::class, 'describe'], AgentConversationStore::attachmentsOf($m->attachments)),
+                    'mentions' => AgentConversationStore::mentionsOf($m->meta), // the records the person mentioned: ref and label
+                    'continuation' => $isContinuation, // a question sent by "Continue": a surface hides it
+                    'continued' => $continued, // an answer that carries on the previous one
+                    'versions' => $m->role === 'user' ? (int) ($versions[$m->id] ?? 0) : 0, // earlier answers to this question
                     'at' => $m->created_at,
                     'stopped' => AgentConversationStore::wasStopped($m->meta),
                     'cutShort' => AgentConversationStore::cutShort($m->meta),
@@ -200,6 +334,7 @@ class AgentChat
                     'unanswered' => false,
                     'editable' => false,
                     'regenerable' => false,
+                    'continuable' => false,
                 ];
             });
 
@@ -227,10 +362,90 @@ class AgentChat
             // otherwise the provider failed or the person stopped it and it gets a Retry.
             $list->push([...$list->pop(), 'unanswered' => $idle]);
         } elseif ($idle && ! collect($last['tools'])->contains('pending', true)) {
-            $list->push([...$list->pop(), 'regenerable' => true]);
+            // The last answer: produce it again, or — when the model's length limit cut it — carry on where it stopped.
+            $list->push([...$list->pop(), 'regenerable' => true, 'continuable' => $last['cutShort'] === 'length']);
         }
 
         return $list;
+    }
+
+    /**
+     * The earlier answers to a question (kept when it was answered again or edited), oldest first: the version id,
+     * the question's text at the time, the answer's text and HTML, when it was given.
+     *
+     * @return Collection<int, array{id: int, question: string, text: string, html: string, at: Carbon|null}>
+     */
+    public function versions(string $questionId): Collection
+    {
+        if (! $this->conversation) {
+            return collect();
+        }
+
+        return app(AgentConversationStore::class)->versionsOf($this->conversation, $questionId)->map(function (AgentAnswerVersion $v) {
+            $answer = collect($v->rows)->first(fn (array $row) => ($row['role'] ?? null) === 'assistant' && trim((string) ($row['content'] ?? '')) !== '');
+            $text = (string) ($answer['content'] ?? '');
+
+            // When the answer was given (the row's own time), not when it was replaced (the version's).
+            $at = isset($answer['created_at']) ? Carbon::parse($answer['created_at']) : $v->created_at;
+
+            return ['id' => (int) $v->id, 'question' => (string) $v->question, 'text' => $text, 'html' => Markdown::render($text), 'at' => $at];
+        })->values();
+    }
+
+    /**
+     * Put an earlier answer to the last question back (the current one becomes a version in turn), so the chat
+     * carries on from it. Refused while the chat is busy, for any question but the last, or for a version that is
+     * not the question's.
+     */
+    public function showVersion(string $questionId, int $versionId): bool
+    {
+        $last = $this->lastQuestion();
+
+        if (! $last || $last->id !== $questionId || ! $this->idle()) {
+            return false;
+        }
+
+        $this->live = null;
+
+        return app(AgentConversationStore::class)->restoreVersion($this->conversation, $questionId, $versionId);
+    }
+
+    /**
+     * The conversation as Markdown, for an export: the title, then every question and answer with its time,
+     * proposals as one line each ("Approved: Rename widget #3 to Alpha II?").
+     */
+    public function transcript(): string
+    {
+        $lines = ['# '.($this->title() ?? __('Chat')), ''];
+
+        foreach ($this->messages() as $message) {
+            if ($message['continuation']) {
+                continue;
+            }
+
+            $who = $message['role'] === 'user' ? __('You') : Agents::name();
+            $lines[] = '**'.$who.'** · '.$message['at']?->format('Y-m-d H:i');
+            $lines[] = '';
+
+            foreach ($message['tools'] as $tool) {
+                if (! $tool['readOnly']) {
+                    $lines[] = '> '.($tool['pending'] ? __('Waiting') : ($tool['rejected'] ? __('Rejected') : __('Approved'))).': '.$tool['question'];
+                    $lines[] = '';
+                }
+            }
+
+            foreach ($message['attachments'] as $attachment) {
+                $lines[] = '> '.__('Attachment').': '.($attachment['name'] ?? $attachment['type']);
+                $lines[] = '';
+            }
+
+            if (trim($message['text']) !== '') {
+                $lines[] = trim($message['text']);
+                $lines[] = '';
+            }
+        }
+
+        return implode("\n", $lines);
     }
 
     /**
@@ -262,6 +477,7 @@ class AgentChat
                 'status' => $active->status,
                 'statusText' => $turns->statusText($active), // what the job reports, or the missing-worker hint
                 'html' => filled($active->text) ? Markdown::render((string) $active->text) : '',
+                'tools' => array_map(fn (string $name) => Str::headline($name), $active->tool_calls ?? []), // called so far, in order
             ] : null,
             'queued' => $queued->filter(fn (AgentTurn $t) => $t->prompt() !== null)->map(fn (AgentTurn $t) => ['id' => $t->id, 'text' => (string) $t->prompt()])->values()->all(),
             'held' => $queued->first(fn (AgentTurn $t) => $t->decisions() !== null)?->decisions() ?? [],
@@ -321,7 +537,7 @@ class AgentChat
     public function turnTotals(): array
     {
         if (! $this->conversation) {
-            return ['count' => 0, 'tokens_in' => 0, 'tokens_out' => 0, 'tool_calls' => 0, 'duration_ms' => 0, 'last_tokens_in' => null];
+            return ['count' => 0, 'tokens_in' => 0, 'tokens_out' => 0, 'tool_calls' => 0, 'duration_ms' => 0, 'cost' => null, 'last_tokens_in' => null];
         }
 
         $turns = AgentTurn::query()
@@ -329,7 +545,9 @@ class AgentChat
             ->whereNotIn('status', AgentTurn::OPEN)
             ->orderByDesc('id')
             ->limit(AgentConversationStore::SUMMARY_ROWS_CAP)
-            ->get(['id', 'usage', 'tool_calls', 'duration_ms']);
+            ->get(['id', 'usage', 'tool_calls', 'duration_ms', 'cost']);
+
+        $priced = $turns->filter(fn (AgentTurn $t) => $t->cost !== null);
 
         return [
             'count' => $turns->count(),
@@ -337,6 +555,7 @@ class AgentChat
             'tokens_out' => (int) $turns->sum(fn (AgentTurn $t) => $t->tokensOut() ?? 0),
             'tool_calls' => (int) $turns->sum(fn (AgentTurn $t) => count($t->tool_calls ?? [])),
             'duration_ms' => (int) $turns->sum('duration_ms'),
+            'cost' => $priced->isEmpty() ? null : round((float) $priced->sum('cost'), 6), // in AgentPricing::currency(); null when no model has a price
             'last_tokens_in' => $turns->first(fn (AgentTurn $t) => $t->usage !== null)?->tokensIn(),
         ];
     }
@@ -388,16 +607,51 @@ class AgentChat
         return AgentConversationStore::providerSummarizer(app(AiManager::class)->textProviderFor($agent, $resolved['provider']));
     }
 
-    /** Ask a question: the turn it became (null for an empty question or when the agent is off). */
-    public function send(string $prompt): ?AgentTurn
+    /**
+     * Ask a question, with the files the person attached (laravel/ai files, AgentAttachments::store() gives one
+     * per upload) and the records they mentioned (page-context refs such as "orders/12", typed as "@Order RO-00012"
+     * in a composer: the model reads each one's summary with the question): the turn it became (null for an
+     * empty question or when the agent is off).
+     *
+     * @param  list<File>  $attachments
+     * @param  list<string>  $mentions
+     */
+    public function send(string $prompt, array $attachments = [], array $mentions = []): ?AgentTurn
     {
         $prompt = trim($prompt);
 
-        if ($prompt === '') {
+        if ($prompt === '' && $attachments === []) {
             return null;
         }
 
-        return $this->startTurn(['prompt' => $prompt]);
+        $mentioned = collect($mentions)
+            ->map(fn ($ref) => is_string($ref) && ($context = PageContext::resolve($ref)) ? ['ref' => $ref, 'label' => $context['label']] : null)
+            ->filter()
+            ->unique('ref')
+            ->values()
+            ->all();
+
+        return $this->startTurn(array_filter([
+            'prompt' => $prompt !== '' ? $prompt : __('(see the attached file)'),
+            'attachments' => array_values(array_map(fn (File $file) => $file->toArray(), $attachments)),
+            'mentions' => $mentioned,
+        ]));
+    }
+
+    /**
+     * Carry on an answer the model's length limit cut short: a continuation turn, whose question a surface does
+     * not show and whose answer reads as the rest of the one above. Null unless the last answer was cut short
+     * that way and nothing runs.
+     */
+    public function continueAnswer(): ?AgentTurn
+    {
+        $last = $this->messages()->last();
+
+        if (! $last || ! ($last['continuable'] ?? false)) {
+            return null;
+        }
+
+        return $this->startTurn(['prompt' => 'Continue exactly where your previous answer stopped, without repeating what you already wrote.', 'continuation' => true]);
     }
 
     /**
@@ -502,7 +756,7 @@ class AgentChat
      *
      * @throws ModelNotFoundException
      */
-    public function rate(string $messageId, string $rating): void
+    public function rate(string $messageId, string $rating, ?string $note = null): void
     {
         $owned = $this->conversation && ConversationMessage::query()
             ->where('conversation_id', $this->conversation)
@@ -513,9 +767,12 @@ class AgentChat
             throw (new ModelNotFoundException)->setModel(ConversationMessage::class, [$messageId]);
         }
 
+        // The turn that produced the answer: the newest question turn recorded before the answer's row.
+        $turn = AgentTurn::query()->forConversation($this->conversation)->whereNotNull('message_id')->where('message_id', '<', $messageId)->orderByDesc('message_id')->value('id');
+
         AgentMessageFeedback::query()->updateOrCreate(
             ['message_id' => $messageId, 'user_id' => $this->participant->getKey()],
-            ['rating' => $rating === 'up' ? 'up' : 'down'],
+            ['rating' => $rating === 'up' ? 'up' : 'down', 'note' => filled($note) ? Str::limit(trim((string) $note), 1000, '') : null, 'turn_id' => $turn],
         );
     }
 
@@ -550,6 +807,10 @@ class AgentChat
         // A new chat is titled by the provider once its first answer is in (the question is the title until then).
         if ($prompt !== null && ! ConversationMessage::query()->where('conversation_id', $this->conversation)->where('role', 'assistant')->exists()) {
             $input['title'] = true;
+        }
+
+        if ($this->sync) {
+            $input['sync'] = true;
         }
 
         $this->live = null;

@@ -3,7 +3,9 @@
 namespace Packstub\Agents;
 
 use Closure;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Laravel\Mcp\Server\Tool;
 use Packstub\Agents\Ai\Agent;
@@ -50,6 +52,8 @@ class AgentsManager
     protected ?Closure $credentials = null;
 
     protected ?Closure $limitsAuthorize = null;
+
+    protected ?Closure $participantByEmail = null;
 
     protected ?Closure $tenantResolver = null;
 
@@ -312,6 +316,33 @@ class AgentsManager
         $credentials = $this->credentials ? ($this->credentials)() : null;
 
         return $credentials instanceof WorkspaceCredentials ? $credentials : null;
+    }
+
+    /**
+     * How the email channel finds the person behind a sender address — fn (string $email): ?Model. Without it the
+     * guard's user provider is asked for the address (an `email` credential).
+     */
+    public function participantByEmailUsing(Closure $callback): void
+    {
+        $this->participantByEmail = $callback;
+    }
+
+    /** The person a sender address belongs to, or null (a mail from nobody is dropped). */
+    public function participantByEmail(string $email): (Model&Authenticatable)|null
+    {
+        $email = strtolower(trim($email));
+
+        if ($email === '') {
+            return null;
+        }
+
+        if ($this->participantByEmail) {
+            $user = ($this->participantByEmail)($email);
+        } else {
+            $user = Auth::guard($this->context()->guard())->getProvider()?->retrieveByCredentials(['email' => $email]);
+        }
+
+        return $user instanceof Model && $user instanceof Authenticatable ? $user : null;
     }
 
     public function limitsAuthorizeUsing(Closure $callback): void
