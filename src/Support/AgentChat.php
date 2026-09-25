@@ -385,7 +385,10 @@ class AgentChat
             $answer = collect($v->rows)->first(fn (array $row) => ($row['role'] ?? null) === 'assistant' && trim((string) ($row['content'] ?? '')) !== '');
             $text = (string) ($answer['content'] ?? '');
 
-            return ['id' => (int) $v->id, 'question' => (string) $v->question, 'text' => $text, 'html' => Markdown::render($text), 'at' => $v->created_at];
+            // When the answer was given (the row's own time), not when it was replaced (the version's).
+            $at = isset($answer['created_at']) ? Carbon::parse($answer['created_at']) : $v->created_at;
+
+            return ['id' => (int) $v->id, 'question' => (string) $v->question, 'text' => $text, 'html' => Markdown::render($text), 'at' => $at];
         })->values();
     }
 

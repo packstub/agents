@@ -160,6 +160,8 @@ it('keeps the earlier answers of a question as versions and puts one back', func
     expect($chat->messages()[0]['versions'])->toBe(0)
         ->and($chat->versions($question->id))->toBeEmpty();
 
+    $answered = ConversationMessage::query()->where('conversation_id', $chat->conversation())->where('role', 'assistant')->sole()->created_at;
+    $this->travel(10)->minutes();
     WidgetAgent::fake(['Two of them.']);
     $chat->regenerate();
     WidgetAgent::fake(['Two are live.']);
@@ -170,7 +172,9 @@ it('keeps the earlier answers of a question as versions and puts one back', func
     expect($chat->messages()[0]['versions'])->toBe(2)
         ->and($versions->pluck('text')->all())->toBe(['Two.', 'Two of them.'])
         ->and($versions->pluck('question')->all())->toBe(['How many?', 'How many?'])
-        ->and($versions[0]['html'])->toContain('Two.');
+        ->and($versions[0]['html'])->toContain('Two.')
+        // A version is dated when its answer was given, not when Regenerate replaced it.
+        ->and($versions[0]['at']->equalTo($answered))->toBeTrue();
 
     // Put the first answer back: the current one becomes a version, the question's text comes back with it.
     expect($chat->showVersion($question->id, $versions[0]['id']))->toBeTrue()
