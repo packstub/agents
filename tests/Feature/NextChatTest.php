@@ -6,8 +6,8 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Responses\Data\Meta;
+use Laravel\Ai\Responses\Data\TextUsage;
 use Laravel\Ai\Responses\Data\ToolCall;
-use Laravel\Ai\Responses\Data\Usage;
 use Laravel\Ai\Responses\TextResponse;
 use Packstub\Agents\Channels\Email\AgentAnswerMail;
 use Packstub\Agents\Channels\Email\EmailChannel;
@@ -242,15 +242,18 @@ it('prices a turn from the model\'s price list and sums the cost of a chat', fun
     expect(AgentPricing::for('test-claude-fast'))->toBe(['in' => 3, 'out' => 15, 'cache_read' => 0.3, 'cache_write' => 3.75]) // the prefix
         ->and(AgentPricing::for('test-claude-auto'))->toBe(['in' => 5, 'out' => 25]) // the exact name wins
         ->and(AgentPricing::for('gpt-9'))->toBeNull()
-        ->and(AgentPricing::cost('test-claude-fast', ['prompt_tokens' => 1_000_000, 'completion_tokens' => 100_000, 'cache_read_input_tokens' => 1_000_000, 'reasoning_tokens' => 0]))->toBe(4.8)
-        ->and(AgentPricing::cost('gpt-9', ['prompt_tokens' => 10]))->toBeNull()
+        // laravel/ai 1.0 reports the input inclusive of the cached tokens: the uncached part is priced at the base rate, the rest at the cache rates.
+        ->and(AgentPricing::cost('test-claude-fast', ['input_tokens' => 2_000_000, 'output_tokens' => 100_000, 'cache_read_input_tokens' => 1_000_000, 'cache_write_input_tokens' => null, 'reasoning_tokens' => 20_000]))->toBe(4.8)
+        // A turn stored before the upgrade keeps the 0.x keys and is priced the same.
+        ->and(AgentPricing::cost('test-claude-fast', ['prompt_tokens' => 1_000_000, 'completion_tokens' => 80_000, 'cache_read_input_tokens' => 1_000_000, 'reasoning_tokens' => 20_000]))->toBe(4.8)
+        ->and(AgentPricing::cost('gpt-9', ['input_tokens' => 10]))->toBeNull()
         ->and(AgentPricing::format(0.0123))->toBe('$0.0123')
         ->and(AgentPricing::format(1.2))->toBe('$1.20')
         ->and(AgentPricing::format(null))->toBeNull();
 
     $user = $this->user();
     actingAs($user);
-    WidgetAgent::fake([new TextResponse('Two.', new Usage(promptTokens: 200_000, completionTokens: 40_000), new Meta('anthropic', 'test-claude-auto'))]);
+    WidgetAgent::fake([new TextResponse('Two.', new TextUsage(inputTokens: 200_000, outputTokens: 40_000), new Meta('anthropic', 'test-claude-auto'))]);
     $chat = AgentChat::for($user);
     $turn = $chat->send('How many?');
 
@@ -385,7 +388,7 @@ it('serves the app\'s resources, one record and the starter questions over MCP',
     $rpc = function (string $method, array $params = []) use ($headers) {
         auth()->forgetGuards();
 
-        return postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => $method, 'params' => $params], $headers)->assertOk();
+        return postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => $method, 'params' => $params], $headers); // laravel/mcp 1.0 answers a JSON-RPC error with 400
     };
 
     expect($rpc('resources/list')->json('result.resources.*.uri'))->toBe(['agents://resources'])
@@ -449,7 +452,7 @@ it('evaluates the agent in a test: which tools it called with which arguments, w
     $next = $result->then()->expecting(['Two widgets.'])->ask('How many now?');
     $next->assertOk()->assertNoToolCalls();
     expect($next->chat->conversation())->toBe($result->chat->conversation())
-        ->and(AgentChat::for($user, $result->chat->conversation())->messages())->toHaveCount(5); // a decision has no question row
+        ->and(AgentChat::for($user, $result->chat->conversation())->messages())->toHaveCount(4); // a decision made with the buttons has no question row, and its answer folds into the paused one (laravel/ai 1.0)
 
     $refused = AgentEval::as($user)->expecting(['never'])->ask(str_repeat('x', 5000));
     $refused->assertRefused('characters')->assertFailed();

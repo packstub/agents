@@ -18,7 +18,7 @@ $conversation = app(AgentConversationStore::class)->startConversation($user, $qu
 $turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => $question], null, 'auto', null);
 ```
 
-The job captures who asked and where (`AgentContext::capture()`: the user, the guard, the workspace key, the locale) and restores it on the worker (`enter()`), so tools, ability checks and the prompt behave as they did in the request. It runs the middleware pipeline (the budget check first), streams the answer from the provider and writes what it has so far to the row, then stores the answer as laravel/ai does. When the turn ends its row keeps the record — provider and model, tokens, tools called, duration, how it ended — see [What each turn cost](budgets-and-limits.md#what-each-turn-cost).
+The job captures who asked and where (`AgentContext::capture()`: the user, the guard, the workspace key, the locale) and restores it on the worker (`enter()`), so tools, ability checks and the prompt behave as they did in the request. It runs the middleware pipeline around each model round-trip (the budget check first), streams the answer from the provider and writes what it has so far to the row (the status line says when the model is reasoning, writing or calling a tool), then stores the answer as laravel/ai does: one message per turn, its steps — text, reasoning, tool calls with their results — in the `steps` column. When the turn ends its row keeps the record — provider and model, tokens, tools called, duration, how it ended — see [What each turn cost](budgets-and-limits.md#what-each-turn-cost).
 
 `GET {chat.path}/chat/{conversation}/turn` (`chat.poll_interval` apart, `AgentTurns::pollInterval()` in code) returns `{"active": {"id", "status", "statusText", "html"} | null, "version"}`: the running turn with its status line (`AgentTurns::statusText()`: what the job last reported, "Thinking…" before it did, the missing-worker hint) and the answer so far rendered, and a version stamp that changes whenever the conversation did. `AgentTurns::active()`, `queued()` and `latest()` read the state back in code, `participant($turn)` gives the person a turn belongs to, `remove($turn)` takes a queued follow-up out of the line before it starts, and `Markdown::render($text)` turns a stored answer into the same HTML the endpoint returns. Follow-ups wait as `queued` rows and start, in order, as soon as the previous turn is done. `AgentTurns::requestStop()` cuts a running answer short: what the assistant had written stays as its answer, marked "(stopped)". An answer the provider ended early — a stream that closed mid-answer, the model's length limit, a content filter — is kept the same way, marked "(cut short)" with the reason (`AgentTurns::cutShortReason()`).
 
@@ -80,7 +80,7 @@ A chat can go on as long as you like; what changes is what the model reads. Each
 
 ### Approvals
 
-When the agent calls a write tool, laravel/ai pauses the turn with the tool's name and arguments as a pending approval. The turn resumes with the decision (`AgentTurns::enqueue()` with the approval decisions in its input instead of a prompt) and the tool either runs or reports that it was rejected (`AgentTurns::rejectionResult()`). The generic rules ask the model not to claim something was done until the tool result confirms it and never to chain destructive changes with anything else in one turn. A chat surface shows the arguments, not the model's summary of them, so a person can see a wrong target before it runs.
+When the agent calls a write tool, laravel/ai pauses the turn with the tool's name and arguments as a pending approval: the answer is stored with status `paused`, the call keeping the tool's question as its `approval_reason`. The turn resumes with the decision (`AgentTurns::enqueue()` with the approval decisions in its input instead of a prompt) and the tool either runs or reports that it was rejected (`AgentTurns::rejectionResult()`); what the model says next is folded into the paused answer, as laravel/ai 1.0 stores a resume — unless the person decided in words ("Yes, go ahead."), which is recorded as a reply, so the answer to it is stored after it. A turn the provider gives up on midway is stored too, with status `failed`, the steps it completed and the error in `meta.error`; `messages()` marks it (`failed`, `error`) and offers Regenerate. The generic rules ask the model not to claim something was done until the tool result confirms it and never to chain destructive changes with anything else in one turn. A chat surface shows the arguments, not the model's summary of them, so a person can see a wrong target before it runs.
 
 ### Events
 
@@ -231,7 +231,7 @@ A turn that resumes an approval stays on the provider that proposed the change; 
 
 ### Middleware
 
-Every turn runs through a middleware pipeline before the provider is called, the same one laravel/ai gives its agents. The package puts its own guard rails there — `Packstub\Agents\Ai\Middleware\EnforceBudget` refuses a turn over a limit and counts one that may run — and your app adds its own after them: an audit log, redaction of what leaves the workspace, a tenant check, a note appended to the prompt. `Packstub\Agents\Ai\Middleware\AttachContext` runs last and prepends the dynamic block (date, person, page context) to the question, so your middleware reads the question as typed.
+Every turn runs through a middleware pipeline before the provider is called, the same one laravel/ai gives its agents: since laravel/ai 1.0 it wraps each model round-trip of the turn (a *step*: the question, then one more for every batch of tool results), not the turn as a whole. The package puts its own guard rails there — `Packstub\Agents\Ai\Middleware\EnforceBudget` refuses a turn over a limit and counts one that may run, on the first step — and your app adds its own after them: an audit log, redaction of what leaves the workspace, a tenant check, a note appended to the question. `Packstub\Agents\Ai\Middleware\AttachContext` runs last and prepends the dynamic block (date, person, page context) to the question on every step, so your middleware reads the question as typed and the model reads the same messages while it calls tools.
 
 A middleware is a class with one method. `php artisan make:agent-middleware AuditTurns` (laravel/ai's command) scaffolds it:
 
@@ -239,21 +239,22 @@ A middleware is a class with one method. `php artisan make:agent-middleware Audi
 namespace App\Ai\Middleware;
 
 use Closure;
-use Laravel\Ai\Prompts\AgentPrompt;
-use Laravel\Ai\Responses\AgentResponse;
+use Laravel\Ai\Gateway\StepResponse;
+use Laravel\Ai\PendingStep;
+use Packstub\Agents\Ai\Middleware\EnforceBudget;
 use Packstub\Agents\Exceptions\TurnRefused;
 
 class AuditTurns
 {
-    public function handle(AgentPrompt $prompt, Closure $next)
+    public function handle(PendingStep $step, Closure $next)
     {
-        if (Audit::frozen()) {
+        if ($step->isFirstStep() && Audit::frozen()) {
             throw new TurnRefused('The assistant is paused while the audit runs.');
         }
 
-        return $next($prompt->append('Mention the ticket number when there is one.'))
-            ->then(function (AgentResponse $response): void {
-                Audit::log(auth()->user(), $response->text, $response->usage);
+        return $next($step->withInstructions($step->instructions."\n\nMention the ticket number when there is one."))
+            ->then(function (StepResponse $response) use ($step): void {
+                Audit::log(auth()->user(), $step->number, $response->text, $response->usage);
             });
     }
 }
@@ -267,8 +268,9 @@ Agents::useMiddleware([AuditTurns::class, RedactSecrets::class]);
 
 What you can do in there:
 
-- **Read and revise the prompt.** `$prompt->prompt` is what the person typed (empty on an approval turn — check `$prompt->hasApprovalDecisions()`); `$prompt->agent`, `$prompt->model` and `$prompt->provider` say what is about to run. `append()`, `prepend()` and `revise()` hand a new prompt to the next step; the transcript keeps the original.
-- **Read the answer.** `$next($prompt)->then(fn (AgentResponse $response) => …)` runs once the answer is complete, with its text, tool calls and token usage. It works the same for a streamed chat turn and a plain `prompt()` call.
-- **Stop the turn.** Throw `TurnRefused` with a message: nothing is sent to the provider, the question stays in the conversation, and the turn ends `failed` with finish reason `refused` and the message for the person to read (a chat surface shows it as a refusal, not an error).
+- **Know where you are.** `$step->isFirstStep()` (or `$step->number`) tells the first round-trip from the tool steps that follow; `$step->isFinalStep` the last one allowed by `max_steps`. `EnforceBudget::question($step)` is what the person typed, as typed — `null` on the tool steps and on a turn that resumes an approval. `$step->provider`, `$step->model`, `$step->instructions`, `$step->messages` and `$step->tools` say what is about to run; `$step->steps` and `$step->usage` what the turn did so far.
+- **Revise the step.** `withInstructions()`, `withMessages()`, `withTools()`, `onlyTools()`, `withoutTools()`, `withToolChoice()`, `withMaxTokens()` and `withProviderOptions()` hand a copy to the next middleware; the transcript keeps the question as typed. To append to the question itself, replace the last message of `$step->messages` on the first step (it is the `UserMessage`).
+- **Read the step's answer.** `$next($step)->then(fn (StepResponse $response) => …)` runs once the step's text, tool calls and token usage are in — once per step, so an audit line per turn sums them or reads the `AgentTurn` on `TurnEnded` (see [Events](#events)). It works the same for a streamed chat turn and a plain `prompt()` call. Returning a `StepResponse` of your own answers the step without calling the model.
+- **Stop the turn.** Throw `TurnRefused` with a message: nothing is sent to the provider, the question stays in the conversation, and the turn ends `failed` with finish reason `refused` and the message for the person to read (a chat surface shows it as a refusal, not an error). Thrown on a later step it ends the turn there, with the steps so far kept on the answer.
 
 Middleware runs inside the turn job, under the workspace, user, guard and locale of the request that asked, so `auth()->user()`, `Agents::tenant()` and your abilities all read as they do in a request. The order is the package's guard rails, the classes in config, the facade's list, then the context block; override `middleware()` on your `Agent` subclass to change it (keep `AttachContext` last, or the model loses the date, the person and the page context).

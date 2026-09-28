@@ -171,7 +171,7 @@ Agents::enteringTenant(fn (Team $team): ?Closure => ...);
 | `useTools(array)` | the tool list when there is no server class |
 | `addTools(array\|Closure)` | tools appended to the server's own list (what the Filament plugin uses for `show-table`) |
 | `useResources(array)` | the `AgentResource` classes for filters, summaries and page context |
-| `useMiddleware(array)` | your own agent middleware — classes with `handle(AgentPrompt $prompt, Closure $next)`, instances or closures — run on every turn after the package's guard rails, after the ones in config; see [Middleware](assistant.md#middleware) |
+| `useMiddleware(array)` | your own agent middleware — classes with `handle(PendingStep $step, Closure $next)`, instances or closures — run on every step of every turn after the package's guard rails, after the ones in config; see [Middleware](assistant.md#middleware) |
 | `authorizeUsing(fn (string $ability): bool)` | how a tool's ability is checked for the current person (default: the `Gate` when it has that ability, otherwise allowed) |
 | `roleLabelUsing(fn (): ?string)` | the person's role label for the prompt and refusals |
 | `credentialsUsing(fn (): ?WorkspaceCredentials)` | where a workspace's own provider, key and model come from |

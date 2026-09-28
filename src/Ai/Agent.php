@@ -111,16 +111,17 @@ abstract class Agent implements AgentContract, Conversational, HasMiddleware, Ha
     }
 
     /**
-     * The pipeline a prompt goes through before the provider is called: the budget check first, so a refused
-     * turn costs nothing, then the app's own middleware (audit log, redaction, tenant checks…), then the
-     * dynamic block is attached to the question, last so the app's middleware reads it as typed. Each entry is
-     * a class with handle(AgentPrompt $prompt, Closure $next), an instance of one, or a closure of that shape.
+     * The pipeline each model round-trip of a turn goes through before the provider is called: the budget check
+     * first, so a refused turn costs nothing, then the app's own middleware (audit log, redaction, tenant
+     * checks…), then the dynamic block is attached to the question, last so the app's middleware reads it as
+     * typed. Each entry is a class with handle(PendingStep $step, Closure $next), an instance of one, or a
+     * closure of that shape (laravel/ai 1.0 runs it on every step; $step->isFirstStep() tells the first).
      *
      * @return list<object|Closure>
      */
     public function middleware(): array
     {
-        return [app(EnforceBudget::class), ...Agents::middleware(), app(AttachContext::class)];
+        return [app(EnforceBudget::class), ...Agents::middleware(), new AttachContext($this)];
     }
 
     public function maxSteps(): int
@@ -156,9 +157,9 @@ abstract class Agent implements AgentContract, Conversational, HasMiddleware, Ha
             // OpenAI caches every prefix it has seen on its own — the static system prompt makes the history one;
             // reasoning effort is the equivalent knob (reasoning models only — gpt-4.1 / gpt-4o reject the parameter).
             Lab::OpenAI => $effort && self::supportsReasoning($this->modelOn('openai')) ? ['reasoning' => ['effort' => $effort]] : [],
-            // Gemini 3 takes the effort as a thinking level (generationConfig.thinkingConfig.thinkingLevel); it knows
-            // no xhigh, so that is sent as high. Caching is implicit.
-            Lab::Gemini => $effort ? ['thinkingConfig' => ['thinkingLevel' => strtoupper($effort === 'xhigh' ? 'high' : $effort)]] : [],
+            // Gemini 3 takes the effort as a thinking level (generation_config.thinking_level on the Interactions API
+            // laravel/ai 1.0 speaks); it knows no xhigh, so that is sent as high. Caching is implicit.
+            Lab::Gemini => $effort ? ['thinking_level' => $effort === 'xhigh' ? 'high' : $effort] : [],
             // xAI speaks the Responses API: reasoning.effort (low … xhigh) on the reasoning Grok models; the
             // "non-reasoning" variants reject it.
             Lab::xAI => $effort && self::supportsReasoning($this->modelOn('xai'), 'xai') ? ['reasoning' => ['effort' => $effort]] : [],

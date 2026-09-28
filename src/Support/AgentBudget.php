@@ -85,7 +85,7 @@ class AgentBudget
             ->when($userId, fn ($q) => $q->where('participant_id', $userId))
             ->where('created_at', '>=', $since)
             ->pluck('usage')
-            ->sum(fn ($usage) => array_sum(array_filter((array) $usage, 'is_int')));
+            ->sum(fn ($usage) => AgentUsage::total(is_array($usage) ? $usage : null));
     }
 
     /**

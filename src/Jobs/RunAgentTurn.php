@@ -10,8 +10,9 @@ use Illuminate\Support\Str;
 use Laravel\Ai\AiManager;
 use Laravel\Ai\Approvals\Decision;
 use Laravel\Ai\Approvals\Decisions;
-use Laravel\Ai\Responses\Data\Usage;
+use Laravel\Ai\Responses\Data\TextUsage;
 use Laravel\Ai\Streaming\Events\Error;
+use Laravel\Ai\Streaming\Events\ReasoningDelta;
 use Laravel\Ai\Streaming\Events\StreamEnd;
 use Laravel\Ai\Streaming\Events\StreamStart;
 use Laravel\Ai\Streaming\Events\TextDelta;
@@ -158,7 +159,7 @@ class RunAgentTurn implements ShouldQueue
 
         // The turn's record: what answered, what it cost, what it called, how long it took, how it ended.
         $startedAt = microtime(true);
-        $usage = new Usage;
+        $usage = new TextUsage;
         $tools = [];
         $resolved = null;
         $answered = null; // the provider and model that took the turn, from the stream: a fallback when the first choice refused it
@@ -211,13 +212,19 @@ class RunAgentTurn implements ShouldQueue
                     $turns->snapshot($turn, $buffer, $status, $tools);
                     ToolCalled::dispatch($turn, $event->toolCall->id, $event->toolCall->name, $event->toolCall->arguments);
                     $wrote = true;
-                } elseif ($event instanceof ToolResult) {
+                } elseif ($event instanceof ToolResult && ! $event->preliminary) { // a sub-agent's progress is preliminary: not a result yet
                     $status = __('Thinking…');
                     if ($buffer !== '') {
                         $buffer .= "\n\n";
                     }
                     $turns->snapshot($turn, $buffer, $status);
                     $wrote = true;
+                } elseif ($event instanceof ReasoningDelta) {
+                    if ($status !== __('Reasoning…')) {
+                        $status = __('Reasoning…');
+                        $turns->snapshot($turn, $buffer, $status);
+                        $wrote = true;
+                    }
                 } elseif ($event instanceof Error && ! $event->recoverable) {
                     throw new RuntimeException($event->message);
                 } elseif ($event instanceof StreamEnd) {

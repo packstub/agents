@@ -37,15 +37,14 @@ return new class extends Migration
                 $table->string('role', 25);
                 $table->text('content');
                 $table->text('attachments');
-                $table->text('tool_calls');
-                $table->text('tool_results');
+                $table->longText('steps'); // the answer's model round-trips, each tool result on the call that made it (laravel/ai 1.0)
                 $table->text('usage');
                 $table->text('meta');
-                $table->text('approval_state')->nullable();
+                $table->string('status', 25); // completed | paused (a proposal waits) | failed
                 $table->timestamps();
 
                 $table->index(['conversation_id', 'participant_type', 'participant_id', 'updated_at'], 'conversation_index');
-                $table->index(['participant_type', 'participant_id'], 'participant_index');
+                $table->index(['participant_type', 'participant_id', 'agent'], 'participant_index');
             });
         }
 

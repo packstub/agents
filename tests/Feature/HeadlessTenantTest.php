@@ -2,7 +2,7 @@
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Queue;
-use Laravel\Ai\Prompts\AgentPrompt;
+use Laravel\Ai\PendingStep;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Models\AgentLimit;
@@ -83,10 +83,10 @@ it('captures the workspace tenantUsing() resolves and restores it in the worker,
         ->and(AgentRuntime::capture())->toBe(['panel' => null, 'tenant' => $team->id, 'user' => $owner->id, 'locale' => 'en', 'guard' => 'web']);
 
     $seen = null;
-    Agents::useMiddleware([function (AgentPrompt $prompt, Closure $next) use (&$seen) {
+    Agents::useMiddleware([function (PendingStep $step, Closure $next) use (&$seen) {
         $seen = [auth()->id(), Agents::tenant()?->slug];
 
-        return $next($prompt);
+        return $next($step);
     }]);
 
     $conversation = app(AgentConversationStore::class)->startConversation($owner, 'How many widgets are live?');

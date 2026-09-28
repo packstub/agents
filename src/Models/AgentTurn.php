@@ -5,6 +5,7 @@ namespace Packstub\Agents\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
+use Packstub\Agents\Support\AgentUsage;
 
 /**
  * One turn of the chat — a question, a retry or a set of approval decisions —
@@ -75,13 +76,13 @@ class AgentTurn extends Model
     /** Tokens the provider read: the prompt, cached or not. Null until the turn ended with a usage. */
     public function tokensIn(): ?int
     {
-        return $this->usage === null ? null : (int) ($this->usage['prompt_tokens'] ?? 0) + (int) ($this->usage['cache_read_input_tokens'] ?? 0) + (int) ($this->usage['cache_write_input_tokens'] ?? 0);
+        return AgentUsage::in($this->usage);
     }
 
     /** Tokens the provider wrote: the answer and the reasoning. */
     public function tokensOut(): ?int
     {
-        return $this->usage === null ? null : (int) ($this->usage['completion_tokens'] ?? 0) + (int) ($this->usage['reasoning_tokens'] ?? 0);
+        return AgentUsage::out($this->usage);
     }
 
     /** Ended turns older than chat.keep_turns_days go; null keeps them all. Run `model:prune --model=…` daily. */

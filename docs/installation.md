@@ -6,8 +6,8 @@
 | --- | --- |
 | PHP | 8.4 or newer |
 | Laravel | 13.x |
-| laravel/ai | ^0.11 |
-| laravel/mcp | ^0.9 |
+| laravel/ai | ^1.0 |
+| laravel/mcp | ^1.0 |
 | laravel/sanctum | ^4 (tokens for MCP clients) |
 
 The package requires `laravel/ai`, `laravel/mcp` and `laravel/sanctum`, so Composer installs them for you. It has no front end of its own: the tools, the MCP server and its tokens, the turn job, budgets and limits run in any Laravel app.
@@ -21,7 +21,7 @@ composer require packstub/agents
 php artisan packstub-agents:install
 ```
 
-The install command publishes `config/packstub-agents.php`, offers to run the migrations and scaffolds `app/Ai/Agents/Assistant.php`. The migrations create the `agent_limits` table and the chat tables (`agent_conversations`, `agent_conversation_messages`, `agent_message_feedback`, `agent_conversation_summaries`, `agent_turns`). They run from the package by default; a database-per-tenant app publishes and splits them, see [Tenancy](tenancy.md).
+The install command publishes `config/packstub-agents.php`, offers to run the migrations and scaffolds `app/Ai/Agents/Assistant.php`. The migrations create the `agent_limits` table and the chat tables (`agent_conversations`, `agent_conversation_messages`, `agent_message_feedback`, `agent_conversation_summaries`, `agent_turns`). They run from the package by default; a database-per-tenant app publishes and splits them, see [Tenancy](tenancy.md). An app upgrading from 1.4 gets one more, `add_steps_to_agent_conversation_messages_table`, which rewrites the stored messages into the shape laravel/ai 1.0 reads (steps and a status) and keeps the old columns empty; decide or abandon any proposal still waiting before running it.
 
 ## Register the agent and the tools
 
