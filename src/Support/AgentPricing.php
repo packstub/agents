@@ -52,14 +52,15 @@ class AgentPricing
             return null;
         }
 
-        $per = fn (string $key, string $price) => ((float) ($usage[$key] ?? 0)) * ((float) ($prices[$price] ?? 0)) / 1_000_000;
+        // The uncached input at the base rate, the cache reads and writes at theirs, the output (reasoning included) at the out rate.
+        $counts = AgentUsage::priced($usage);
+        $per = fn (string $count, string $price) => ((float) $counts[$count]) * ((float) ($prices[$price] ?? 0)) / 1_000_000;
 
         return round(
-            $per('prompt_tokens', 'in')
-            + $per('completion_tokens', 'out')
-            + $per('reasoning_tokens', 'out')
-            + $per('cache_read_input_tokens', 'cache_read')
-            + $per('cache_write_input_tokens', 'cache_write'),
+            $per('uncached_in', 'in')
+            + $per('out', 'out')
+            + $per('cache_read', 'cache_read')
+            + $per('cache_write', 'cache_write'),
             6,
         );
     }

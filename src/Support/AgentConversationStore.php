@@ -4,8 +4,11 @@ namespace Packstub\Agents\Support;
 
 use Closure;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Laravel\Ai\Approvals\PendingApproval;
 use Laravel\Ai\Contracts\Providers\TextProvider;
+use Laravel\Ai\Enums\MessageStatus;
 use Laravel\Ai\Messages\AssistantMessage;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Messages\MessageRole;
@@ -14,6 +17,7 @@ use Laravel\Ai\Messages\UserMessage;
 use Laravel\Ai\Models\Conversation;
 use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Prompts\AgentPrompt;
+use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\ToolResult;
 use Laravel\Ai\Storage\DatabaseConversationStore;
 use Packstub\Agents\Models\AgentAnswerVersion;
@@ -84,11 +88,10 @@ class AgentConversationStore extends DatabaseConversationStore
                 'role' => 'user',
                 'content' => $content,
                 'attachments' => json_encode(array_values($attachments)),
-                'tool_calls' => '[]',
-                'tool_results' => '[]',
+                'steps' => '[]',
                 'usage' => '[]',
                 'meta' => json_encode($meta === [] ? [] : $meta),
-                'approval_state' => null,
+                'status' => MessageStatus::Completed->value,
             ],
         ));
 
@@ -147,15 +150,14 @@ class AgentConversationStore extends DatabaseConversationStore
         $pending = [];
 
         foreach ($this->pausedRows($conversationId, $participant) as $row) {
-            $resolved = collect(json_decode((string) $row->tool_results, true) ?: [])->pluck('id')->all();
-            $calls = collect(json_decode((string) $row->tool_calls, true) ?: [])->keyBy('id');
-
-            foreach (array_diff($this->pausedCallIds($row), $resolved) as $id) {
-                $pending[$id] = [
-                    'name' => (string) ($calls[$id]['name'] ?? ''),
-                    'arguments' => (array) ($calls[$id]['arguments'] ?? []),
-                    'result_id' => $calls[$id]['result_id'] ?? null,
-                ];
+            foreach (self::callsOf($row) as $call) {
+                if (isset($call['id']) && PendingApproval::isPending($call)) {
+                    $pending[$call['id']] = [
+                        'name' => (string) ($call['name'] ?? ''),
+                        'arguments' => (array) ($call['arguments'] ?? []),
+                        'result_id' => $call['result_id'] ?? null,
+                    ];
+                }
             }
         }
 
@@ -176,10 +178,14 @@ class AgentConversationStore extends DatabaseConversationStore
             return 0;
         }
 
-        $this->storeApprovalResults($conversationId, Conversation::participantType($participant), Conversation::participantKey($participant), array_map(
+        $this->storeApprovalResults($conversationId, array_map(
             fn (string $id) => new ToolResult($id, $pending[$id]['name'], $pending[$id]['arguments'], $note, $pending[$id]['result_id'], true),
             array_keys($pending),
         ));
+
+        // Every proposal of those answers is decided now: they are no longer paused, and the raw provider state
+        // they kept for a resume can go (the next question starts a turn of its own).
+        $this->settlePausedRows($conversationId, array_keys($pending));
 
         return count($pending);
     }
@@ -192,9 +198,56 @@ class AgentConversationStore extends DatabaseConversationStore
             ->where('participant_type', Conversation::participantType($participant))
             ->where('participant_id', Conversation::participantKey($participant))
             ->where('role', 'assistant')
-            ->whereNotNull('approval_state')
+            ->where('status', MessageStatus::Paused->value)
             ->orderByDesc('id')
             ->get();
+    }
+
+    /**
+     * The paused answers whose every waiting proposal is among $callIds (decided now, or already answered) become
+     * completed rows, without the raw provider blocks a resume would have replayed. laravel/ai folds a resume into the row it paused on; the
+     * chat keeps a reply the person typed ("Yes, go ahead.") between the proposal and what followed, so the
+     * answer to it is stored as a row of its own instead (storeAssistantMessage).
+     *
+     * @param  list<string>  $callIds
+     */
+    protected function settlePausedRows(string $conversationId, array $callIds): void
+    {
+        $rows = $this->table($this->messagesTable())
+            ->where('conversation_id', $conversationId)
+            ->where('role', 'assistant')
+            ->where('status', MessageStatus::Paused->value)
+            ->get();
+
+        foreach ($rows as $row) {
+            $calls = self::callsOf($row);
+
+            $waiting = collect($calls)->filter(fn (array $call) => PendingApproval::isPending($call))->pluck('id');
+
+            if (array_intersect(array_column($calls, 'id'), $callIds) === [] || $waiting->diff($callIds)->isNotEmpty()) {
+                continue;
+            }
+
+            $this->table($this->messagesTable())->where('id', $row->id)->update([
+                'status' => MessageStatus::Completed->value,
+                'steps' => $this->withoutReplayBlocks($this->decodedSteps($row))->toJson(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    /**
+     * A reply the person typed over a proposal ("Yes, go ahead.") is recorded as a question before the decision
+     * runs, so what the assistant says next is stored after it, as an answer of its own, rather than folded into
+     * the paused answer above the reply as laravel/ai does for a decision made with the buttons.
+     */
+    public function storeAssistantMessage(string $conversationId, ?string $participantType, string|int|null $participantId, AgentPrompt $prompt, AgentResponse $response, ?Throwable $exception = null): ?string
+    {
+        if ($this->answering !== null && $prompt->hasApprovalDecisions()) {
+            $this->settlePausedRows($conversationId, array_keys($prompt->approvalDecisions->all()));
+        }
+
+        return parent::storeAssistantMessage($conversationId, $participantType, $participantId, $prompt, $response, $exception);
     }
 
     /**
@@ -217,11 +270,10 @@ class AgentConversationStore extends DatabaseConversationStore
                 'role' => 'assistant',
                 'content' => $content,
                 'attachments' => '[]',
-                'tool_calls' => '[]',
-                'tool_results' => '[]',
+                'steps' => json_encode([['content' => $content, 'tool_calls' => [], 'reasoning' => '', 'replay_blocks' => [], 'provider_tool_calls' => []]]),
                 'usage' => '[]',
                 'meta' => json_encode(['stopped' => true]),
-                'approval_state' => null,
+                'status' => MessageStatus::Completed->value,
             ],
         ));
 
@@ -358,7 +410,7 @@ class AgentConversationStore extends DatabaseConversationStore
         $this->dropMessagesAfter($conversationId, $questionId);
 
         foreach ($version->rows as $row) {
-            $this->table($this->messagesTable())->insert($row);
+            $this->table($this->messagesTable())->insert(self::rowInCurrentShape($row));
         }
 
         if ($version->question !== '') {
@@ -384,10 +436,10 @@ class AgentConversationStore extends DatabaseConversationStore
         $this->answering = $messageId;
     }
 
-    public function storeUserMessage(string $conversationId, ?string $participantType, string|int|null $participantId, AgentPrompt $prompt): string
+    public function storeUserMessage(string $conversationId, ?string $participantType, string|int|null $participantId, string $agent, UserMessage $message): string
     {
         if ($this->answering === null) {
-            return parent::storeUserMessage($conversationId, $participantType, $participantId, $prompt);
+            return parent::storeUserMessage($conversationId, $participantType, $participantId, $agent, $message);
         }
 
         $messageId = $this->answering;
@@ -478,10 +530,10 @@ class AgentConversationStore extends DatabaseConversationStore
                 continue;
             }
 
-            if ($turns >= $keep && $message instanceof AssistantMessage && $message->toolCalls->isEmpty() && $message->providerContentBlocks === [] && filled($message->content)) {
-                $messages[$i] = new AssistantMessage($message->content, providerContentBlocks: [
+            if ($turns >= $keep && $message instanceof AssistantMessage && $message->toolCalls->isEmpty() && $message->replayBlocks === [] && filled($message->content)) {
+                $messages[$i] = new AssistantMessage($message->content, replayBlocks: [
                     ['type' => 'text', 'text' => $message->content, 'cache_control' => ['type' => 'ephemeral']],
-                ], providerContentBlocksProvider: $this->cacheBreakpointsFor);
+                ], replayBlocksProvider: $this->cacheBreakpointsFor);
 
                 break;
             }
@@ -649,7 +701,7 @@ class AgentConversationStore extends DatabaseConversationStore
     {
         $lines = $records->map(function ($record): string {
             $content = Str::limit(trim((string) $record->content), 1200);
-            $calls = collect(json_decode((string) $record->tool_calls, true) ?: [])
+            $calls = collect(self::callsOf($record))
                 ->map(fn ($call) => ($call['name'] ?? 'tool').' '.json_encode($call['arguments'] ?? [], JSON_UNESCAPED_UNICODE))
                 ->implode('; ');
 
@@ -710,13 +762,15 @@ class AgentConversationStore extends DatabaseConversationStore
      */
     protected function estimateParts(object $record, int $index): array
     {
-        $results = (string) $record->tool_results;
+        $calls = self::callsOf($record);
+        $results = json_encode(array_values(array_filter(array_column($calls, 'result'), fn ($r) => $r !== null && $r !== '')));
         $any = strlen($results) > 2; // not '[]'
         $pruned = $any && $index >= self::keepToolResultsTurns() * 2;
 
         return [
             'content' => self::estimateTokens((string) $record->content),
-            'tool_calls' => self::estimateTokens((string) $record->tool_calls),
+            // The call as the model replays it: its id, name and arguments, without the result and the approval bookkeeping.
+            'tool_calls' => $calls === [] ? 0 : self::estimateTokens(json_encode(array_map(fn (array $call) => array_diff_key($call, array_flip(['result', 'denied', 'failed', 'approval_reason'])), $calls))),
             'tool_results' => $pruned ? 40 : ($any ? self::estimateTokens($results) : 0),
             'pruned' => $pruned,
         ];
@@ -776,6 +830,85 @@ class AgentConversationStore extends DatabaseConversationStore
     protected function isUserMessage(mixed $message): bool
     {
         return $message instanceof Message && $message->role === MessageRole::User;
+    }
+
+    /**
+     * A stored row's tool calls across its steps, each with the result that answered it (`result`, `denied`,
+     * `failed`) and, while a proposal waits, its `approval_reason`. Rows written before laravel/ai 1.0 are read
+     * from their `tool_calls` / `tool_results` columns.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function callsOf(object|array $record): array
+    {
+        $record = (array) $record;
+        $steps = is_string($record['steps'] ?? null) ? json_decode($record['steps'], true) : ($record['steps'] ?? null);
+
+        if (! is_array($steps)) {
+            [$steps] = self::stepsFromLegacyRow($record);
+        }
+
+        return array_values(array_filter(array_merge(...array_map(fn ($step) => array_values((array) ($step['tool_calls'] ?? [])), array_values($steps))), 'is_array'));
+    }
+
+    /**
+     * The steps and status of a row written by laravel/ai 0.x (`tool_calls`, `tool_results`, `approval_state`),
+     * the way 1.0 stores them: one step carrying every call, each with its result, a proposal still waiting
+     * keeping its question as `approval_reason`. The upgrade migration rewrites every row through this.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array{0: list<array<string, mixed>>, 1: string}
+     */
+    public static function stepsFromLegacyRow(array $row): array
+    {
+        $decode = fn ($value) => is_string($value) ? (json_decode($value, true) ?: []) : (is_array($value) ? $value : []);
+        $calls = array_values(array_filter($decode($row['tool_calls'] ?? []), 'is_array'));
+        $results = collect(array_filter($decode($row['tool_results'] ?? []), 'is_array'))->keyBy(fn (array $r) => (string) ($r['id'] ?? ''));
+        $pending = (array) ($decode($row['approval_state'] ?? [])['pending'] ?? []);
+
+        if ($calls === [] && ($row['role'] ?? 'assistant') === 'user') {
+            return [[], MessageStatus::Completed->value];
+        }
+
+        $stored = array_map(function (array $call) use ($results, $pending): array {
+            $id = (string) ($call['id'] ?? '');
+            $reason = $pending[$id] ?? null;
+            $result = $results->get($id);
+
+            return [
+                'id' => $id,
+                'name' => (string) ($call['name'] ?? ''),
+                'arguments' => (array) ($call['arguments'] ?? []),
+                'result_id' => $call['result_id'] ?? null,
+                ...(array_key_exists($id, $pending) ? ['approval_reason' => is_string($reason) ? $reason : (is_array($reason) ? ($reason['reason'] ?? null) : null)] : []),
+                ...($result === null ? [] : ['result' => $result['result'] ?? null, ...(($result['denied'] ?? false) ? ['denied' => true] : []), ...(($result['failed'] ?? false) ? ['failed' => true] : [])]),
+            ];
+        }, $calls);
+
+        $paused = collect($stored)->contains(fn (array $call) => PendingApproval::isPending($call));
+
+        return [
+            [['content' => (string) ($row['content'] ?? ''), 'tool_calls' => $stored, 'reasoning' => '', 'replay_blocks' => [], 'provider_tool_calls' => []]],
+            $paused ? MessageStatus::Paused->value : MessageStatus::Completed->value,
+        ];
+    }
+
+    /**
+     * A row kept as an answer version, in the shape the table has now: one saved before laravel/ai 1.0 gets its
+     * steps and status, and any column the table no longer has is left out.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    protected function rowInCurrentShape(array $row): array
+    {
+        if (! array_key_exists('steps', $row) || $row['steps'] === null) {
+            [$steps, $status] = self::stepsFromLegacyRow($row);
+            $row['steps'] = json_encode($steps);
+            $row['status'] = $status;
+        }
+
+        return array_intersect_key($row, array_flip(Schema::connection($this->connection)->getColumnListing($this->messagesTable())));
     }
 
     /** Delete a conversation with its messages, their ratings and its rolling summary; its turns stay in the operator's log. */

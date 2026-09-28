@@ -10,6 +10,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Laravel\Ai\AiManager;
+use Laravel\Ai\Approvals\PendingApproval;
+use Laravel\Ai\Enums\MessageStatus;
 use Laravel\Ai\Files\File;
 use Laravel\Ai\Models\Conversation;
 use Laravel\Ai\Models\ConversationMessage;
@@ -291,12 +293,15 @@ class AgentChat
             ->orderBy('id') // UUIDv7: the order the rows were written, to the millisecond (created_at has seconds)
             ->get()
             ->map(function (ConversationMessage $m) use ($feedback, $versions, $writeTools, $held, &$continuation) {
-                $results = collect($m->tool_results ?? [])->keyBy('id');
+                // The calls across the answer's steps, each carrying its result once it has one and, while a proposal waits, its reason.
+                $calls = collect($m->tool_calls ?? [])->filter(fn ($call) => is_array($call));
+                $results = $calls->filter(fn (array $c) => PendingApproval::isAnswered($c))->keyBy('id');
                 $isContinuation = $m->role === 'user' && AgentConversationStore::isContinuation($m->meta);
                 $continued = $m->role === 'assistant' && $continuation;
                 $continuation = $isContinuation;
-                $everPaused = collect($m->approval_state['pending'] ?? [])->keys();
-                $pending = $everPaused->reject(fn ($id) => $results->has($id));
+                $everPaused = $calls->filter(fn (array $c) => array_key_exists('approval_reason', $c))->pluck('id');
+                $pending = $m->status === MessageStatus::Paused ? $calls->filter(fn (array $c) => PendingApproval::isPending($c))->pluck('id') : collect(); // decided, declined or settled: nothing waits
+                $failed = $m->status === MessageStatus::Failed;
                 $charts = $results->map(fn ($r) => self::chartFromResult($r['result'] ?? null))->filter()->values()->all();
                 $tables = $results->map(fn ($r) => self::tableFromResult($r['result'] ?? null))->filter()->values()->all();
 
@@ -306,7 +311,7 @@ class AgentChat
                     'text' => (string) $m->content,
                     'html' => $m->role === 'assistant' ? Markdown::render((string) $m->content) : e((string) $m->content),
                     // A write tool stays a proposal row (waiting / approved / rejected) after the decision, when the paused list is empty again.
-                    'tools' => collect($m->tool_calls ?? [])->map(fn ($call) => [
+                    'tools' => $calls->map(fn ($call) => [
                         'id' => $call['id'] ?? null,
                         'name' => Str::headline((string) ($call['name'] ?? '')),
                         'tool' => (string) ($call['name'] ?? ''),
@@ -329,6 +334,9 @@ class AgentChat
                     'versions' => $m->role === 'user' ? (int) ($versions[$m->id] ?? 0) : 0, // earlier answers to this question
                     'at' => $m->created_at,
                     'stopped' => AgentConversationStore::wasStopped($m->meta),
+                    'failed' => $failed, // the provider gave up part-way: what arrived is kept with the error (laravel/ai 1.0 records it)
+                    'error' => $failed ? (string) ($m->meta['error'] ?? '') : null,
+                    'reasoning' => $m->role === 'assistant' ? trim(implode("\n\n", array_filter(array_column($m->steps ?? [], 'reasoning')))) : '', // what the model thought before answering, when the provider reports it
                     'cutShort' => AgentConversationStore::cutShort($m->meta),
                     'answeredBy' => AgentConversationStore::answeredBy($m->meta),
                     'unanswered' => false,
@@ -363,6 +371,7 @@ class AgentChat
             $list->push([...$list->pop(), 'unanswered' => $idle]);
         } elseif ($idle && ! collect($last['tools'])->contains('pending', true)) {
             // The last answer: produce it again, or — when the model's length limit cut it — carry on where it stopped.
+            // A failed one is produced again too (the row keeps what arrived, so the question is not unanswered).
             $list->push([...$list->pop(), 'regenerable' => true, 'continuable' => $last['cutShort'] === 'length']);
         }
 

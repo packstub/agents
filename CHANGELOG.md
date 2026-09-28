@@ -2,6 +2,35 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.5.0 — 2026-09-28
+
+The engine moves to laravel/ai 1.0 and laravel/mcp 1.0, and takes what they bring: an answer stored with its steps and reasoning, a failed turn on record, middleware around every model round-trip, inclusive token counts. Filament Agents 1.12 follows.
+
+Upgrading: `composer update packstub/agents` pulls laravel/ai 1.0 and laravel/mcp 1.0; run the migrations (one, on `agent_conversation_messages`: it adds `steps` and `status` and rewrites every existing message, see below). Decide or abandon any proposal still waiting first: it is carried over as pending, but a turn that paused on the 0.x provider state cannot resume from it. Then, if you have any:
+
+- **Your own middleware** now wraps each step of a turn, not the turn: `handle(PendingStep $step, Closure $next)` in place of `handle(AgentPrompt $prompt, Closure $next)`, `$next($step)->then(fn (StepResponse $r) => …)` in place of `->then(fn (AgentResponse $r) => …)`. `$step->isFirstStep()` tells the question from the tool steps; `EnforceBudget::question($step)` is what the person typed (null on a tool step and on a resume, where `$prompt->hasApprovalDecisions()` was true). `withInstructions()`, `withMessages()`, `withTools()`… hand a copy on; `append()` / `prepend()` are gone with the prompt. See [Middleware](https://packstub.dev/docs/agents/assistant#middleware).
+- **Code reading a stored message** finds the answer's model round-trips in `steps` (each tool call with its `result`, `denied`, `failed` and, while a proposal waits, its `approval_reason`) under a `status` (`completed`, `paused`, `failed`); `ConversationMessage::$tool_calls` and `$tool_results` still read them, flattened. The `tool_calls`, `tool_results` and `approval_state` columns stay, empty and nullable, until 2.0 (`AgentConversationStore::callsOf($row)` reads either shape).
+- **Code reading a turn's usage** (`AgentTurn::$usage`, the log line, `AgentPricing::cost()`) gets laravel/ai 1.0's inclusive keys, `input_tokens` (the cached tokens included) and `output_tokens` (the reasoning included), in place of `prompt_tokens` and `completion_tokens`; `tokensIn()`, `tokensOut()`, the budget counters and the pricing read a row stored before the upgrade the same way (`AgentUsage`). A price's `in` rate now applies to the uncached input only.
+- **A resumed turn** (a proposal decided with the buttons) is folded into the answer it paused on — one message per turn, as laravel/ai 1.0 stores it — so a transcript counts one assistant message where it counted two. A decision typed in words ("Yes, go ahead.") keeps its reply row, and the answer to it is stored after the reply.
+- **MCP clients** get a JSON-RPC error (an unknown tool, a resource they may not read) with HTTP status 400 rather than 200, as laravel/mcp 1.0 answers; nothing changes for a client that reads the body.
+
+### Added
+
+- **Reasoning and failed turns in the transcript.** `AgentChat::messages()` returns what the model thought before it answered (`reasoning`, joined across the steps, when the provider reports it) and marks an answer the provider gave up on midway (`failed`, `error`): laravel/ai 1.0 stores such a turn with the steps it completed, so the person sees what arrived and can Regenerate instead of Retry.
+- **A status line while the model reasons.** The turn reports `Reasoning…` when the provider streams reasoning, before `Writing…`; a sub-agent's preliminary results are left out of the tool timeline.
+- **`AgentUsage`.** `in()`, `out()`, `total()` and `priced()` read a usage array written by laravel/ai 1.0 (inclusive counts) or before (`prompt_tokens`…) the same way; every reader in the package goes through it.
+- **`AgentConversationStore::callsOf($row)` and `stepsFromLegacyRow($row)`.** The calls of a stored message across its steps, and the steps a 0.x row translates to — what the migration and a restored answer version use.
+
+### Changed
+
+- Requires `laravel/ai ^1.0` and `laravel/mcp ^1.0`.
+- Gemini takes the effort as `thinking_level` (`low`, `medium`, `high`) on the Interactions API laravel/ai 1.0 speaks, in place of `thinkingConfig.thinkingLevel`; an app that passes raw Gemini options through `providerOptions()` renames them the same way (see laravel/ai's upgrade guide).
+- `EnforceBudget` and `AttachContext` run on `PendingStep`: the budget is checked and counted on the first step of a turn; the dynamic block is put on the question again on every step, so the model reads the same messages while it calls tools (`AttachContext` takes the agent in its constructor; `Agent::middleware()` passes it).
+- `AgentConversationStore::storeUserMessage()` and `declinePending()` follow the 1.0 `ConversationStore` signatures; `pendingCalls()` and `pausedRows()` read paused answers by status; the cache breakpoint on Anthropic is a replay block (`AssistantMessage::$replayBlocks`).
+- A resume the budget refuses (the assistant switched off, a limit reached) is refused before the stream starts: laravel/ai 1.0 runs an approved tool before the first step's middleware sees the turn, so the check moved ahead of it and the proposal stays waiting.
+- An error the provider reports in the stream ends the turn through laravel/ai, which records the failed answer with the steps it completed (Regenerate under it), where the job threw first and left the question unanswered.
+- The fresh-install migration creates `agent_conversation_messages` in the 1.0 shape (`steps`, `status`, the `participant_index` with the agent); the new `add_steps_to_agent_conversation_messages_table` migration upgrades an existing table and backfills it in chunks.
+
 ## 1.4.0 — 2026-09-25
 
 The chat grows up: live updates over an event stream, files with a question, an answer continued or paged through its earlier versions, chats renamed, pinned, searched and exported, a rating with a note, a cost in money. And the assistant reaches beyond the chat: a headless run from a command or the scheduler, an email channel, MCP resources and prompts, events, and an eval harness for tests. Filament Agents 1.11 shows all of it in a panel.

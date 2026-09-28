@@ -5,8 +5,9 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use Laravel\Ai\Enums\MessageStatus;
 use Laravel\Ai\Models\ConversationMessage;
-use Laravel\Ai\Prompts\AgentPrompt;
+use Laravel\Ai\PendingStep;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Mcp\Tools\DrawChart;
@@ -79,7 +80,7 @@ it('serves MCP with draw-chart as the only default tool, then the registered too
     expect($seen)->toBe(['user' => $user->id, 'guard' => 'sanctum', 'tenant' => null, 'locale' => 'de']);
 
     auth()->forgetGuards();
-    $call('retire-widget', ['id' => 1], $read)->assertOk()->assertJsonPath('error.message', 'Tool [retire-widget] not found.');
+    $call('retire-widget', ['id' => 1], $read)->assertStatus(400)->assertJsonPath('error.message', 'Tool [retire-widget] not found.');
 
     // A scoped write token: the tools it names, and only those.
     auth()->forgetGuards();
@@ -89,7 +90,7 @@ it('serves MCP with draw-chart as the only default tool, then the registered too
     $call('retire-widget', ['id' => 1], $scoped)->assertOk()->assertJsonPath('result.isError', false);
     expect(Widget::query()->find(1)->status)->toBe('retired');
     auth()->forgetGuards();
-    $call('who-am-i', [], $scoped)->assertOk()->assertJsonPath('error.message', 'Tool [who-am-i] not found.');
+    $call('who-am-i', [], $scoped)->assertStatus(400)->assertJsonPath('error.message', 'Tool [who-am-i] not found.');
 });
 
 it('runs a queued turn as the person who asked, on the default guard, in their locale, and cleans up after', function () {
@@ -99,10 +100,10 @@ it('runs a queued turn as the person who asked, on the default guard, in their l
     Queue::fake();
 
     $seen = null;
-    Agents::useMiddleware([function (AgentPrompt $prompt, Closure $next) use (&$seen) {
+    Agents::useMiddleware([function (PendingStep $step, Closure $next) use (&$seen) {
         $seen = [auth()->id(), auth()->getDefaultDriver(), app()->getLocale(), Agents::tenant()];
 
-        return $next($prompt);
+        return $next($step);
     }]);
 
     $conversation = app(AgentConversationStore::class)->startConversation($user, 'How many widgets are live?');
@@ -135,10 +136,10 @@ it('runs a queued turn on the guard it was asked on, not the default one', funct
     Queue::fake();
 
     $seen = null;
-    Agents::useMiddleware([function (AgentPrompt $prompt, Closure $next) use (&$seen) {
+    Agents::useMiddleware([function (PendingStep $step, Closure $next) use (&$seen) {
         $seen = [auth()->id(), auth()->getDefaultDriver(), Auth::guard('web')->user()];
 
-        return $next($prompt);
+        return $next($step);
     }]);
 
     $conversation = app(AgentConversationStore::class)->startConversation($user, 'Who am I?');
@@ -255,11 +256,11 @@ function pausedAnswer(object $user, string $conversation): ConversationMessage
     return ConversationMessage::query()->create([
         'id' => (string) Str::uuid7(), 'conversation_id' => $conversation, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id,
         'agent' => WidgetAgent::class, 'role' => 'assistant', 'content' => '', 'attachments' => [], 'usage' => [], 'meta' => [],
-        'tool_calls' => [
-            ['id' => 'c1', 'name' => 'retire-widget', 'arguments' => ['id' => 1], 'result_id' => 'call_1'],
-            ['id' => 'c2', 'name' => 'retire-widget', 'arguments' => ['id' => 2], 'result_id' => 'call_2'],
-        ],
-        'tool_results' => [], 'approval_state' => ['pending' => ['c1' => 'Retire widget Alpha?', 'c2' => 'Retire widget Beta?']],
+        'steps' => [['content' => '', 'reasoning' => '', 'replay_blocks' => [], 'provider_tool_calls' => [], 'tool_calls' => [
+            ['id' => 'c1', 'name' => 'retire-widget', 'arguments' => ['id' => 1], 'result_id' => 'call_1', 'approval_reason' => 'Retire widget Alpha?'],
+            ['id' => 'c2', 'name' => 'retire-widget', 'arguments' => ['id' => 2], 'result_id' => 'call_2', 'approval_reason' => 'Retire widget Beta?'],
+        ]]],
+        'status' => MessageStatus::Paused,
     ]);
 }
 
@@ -312,7 +313,7 @@ it('declines the pending proposals with a note when the person asks something el
         ->and($turn->status)->toBe(AgentTurn::PENDING)
         ->and(collect($paused->tool_results)->pluck('denied', 'id')->all())->toBe(['c1' => true, 'c2' => true])
         ->and($paused->tool_results[0]['result'])->toBe(AgentTurns::supersededResult())
-        ->and($paused->approval_state['pending'])->toBe([])
+        ->and($paused->status)->toBe(MessageStatus::Completed) // decided on every proposal: no longer paused
         ->and($store->pendingCalls($conversation, $user))->toBe([])
         ->and($store->declinePending($conversation, $user, 'again'))->toBe(0);
 });

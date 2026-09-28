@@ -80,8 +80,9 @@ return [
     // Long chats replay fewer messages: the answers are short and every replayed message is billed again.
     'max_conversation_messages' => 40,
 
-    // Your own agent middleware, run on every turn after the package's guard rails (the budget check): classes
-    // with handle(AgentPrompt $prompt, Closure $next) — an audit log, redaction, a tenant check. Throw
+    // Your own agent middleware, run on every model round-trip of a turn after the package's guard rails (the
+    // budget check): classes with handle(PendingStep $step, Closure $next) — an audit log, redaction, a tenant
+    // check; $step->isFirstStep() tells the question from the tool steps that follow. Throw
     // Packstub\Agents\Exceptions\TurnRefused to stop a turn with a message the person reads under their
     // question. AgentsPlugin::make()->middleware([...]) appends to this list.
     'middleware' => [],
