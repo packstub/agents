@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Ai\Enums\MessageStatus;
@@ -14,9 +15,11 @@ use Laravel\Ai\Responses\Data\ToolCall;
 use Laravel\Ai\Responses\Data\ToolResult;
 use Packstub\Agents\Ai\Middleware\AttachContext;
 use Packstub\Agents\Ai\Middleware\EnforceBudget;
+use Packstub\Agents\Events\ProposalDecided;
 use Packstub\Agents\Exceptions\TurnRefused;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Models\AgentAnswerVersion;
+use Packstub\Agents\Models\AgentLimit;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentChat;
 use Packstub\Agents\Support\AgentConversationStore;
@@ -291,4 +294,36 @@ it('reads a usage written either way: inclusive counts from 1.0, the 0.x keys fr
         ->and(AgentUsage::total(null))->toBe(0)
         ->and(AgentUsage::isInclusive($inclusive))->toBeTrue()
         ->and(AgentUsage::isInclusive($legacy))->toBeFalse();
+});
+
+it('refuses a resume the budget does not allow before the approved tool runs', function () {
+    $user = $this->user();
+    actingAs($user);
+    [$alpha] = $this->widgets();
+    $store = app(AgentConversationStore::class);
+    Event::fake([ProposalDecided::class]);
+
+    $conversation = $store->startConversation($user, 'Rename Alpha');
+    $store->storeQuestion($conversation, $user, WidgetAgent::class, 'Rename Alpha to Alpha II.');
+    $row = ConversationMessage::query()->create([
+        'id' => (string) Str::uuid7(), 'conversation_id' => $conversation, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id,
+        'agent' => WidgetAgent::class, 'role' => 'assistant', 'content' => 'Shall I?', 'attachments' => [], 'usage' => [], 'meta' => [],
+        'steps' => [['content' => 'Shall I?', 'reasoning' => '', 'replay_blocks' => [], 'provider_tool_calls' => [], 'tool_calls' => [
+            ['id' => 'c1', 'name' => 'rename-widget', 'arguments' => ['id' => $alpha->id, 'name' => 'Alpha II'], 'result_id' => null, 'approval_reason' => 'Rename?'],
+        ]]],
+        'status' => MessageStatus::Paused,
+    ]);
+    AgentLimit::query()->create(['scope' => 'global', 'enabled' => false]);
+    WidgetAgent::fake(['Done.']);
+
+    // laravel/ai 1.0 runs an approved tool before the first step's middleware: the refusal comes before the stream.
+    $turn = AgentChat::for($user, $conversation)->decide('c1', true);
+
+    expect($turn->status)->toBe(AgentTurn::FAILED)
+        ->and($turn->error)->toBe(__(':name is switched off for this workspace.', ['name' => 'Ask Widgets']))
+        ->and($turn->finish_reason)->toBe('refused')
+        ->and($row->fresh()->status)->toBe(MessageStatus::Paused)
+        ->and($row->fresh()->tool_calls[0])->not->toHaveKey('result')
+        ->and($alpha->fresh()->name)->toBe($alpha->name);
+    Event::assertNotDispatched(ProposalDecided::class);
 });

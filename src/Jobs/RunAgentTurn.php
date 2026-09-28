@@ -25,12 +25,12 @@ use Packstub\Agents\Exceptions\TurnRefused;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentAttachments;
+use Packstub\Agents\Support\AgentBudget;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentModels;
 use Packstub\Agents\Support\AgentRuntime;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Support\PageContext;
-use RuntimeException;
 use Throwable;
 
 /**
@@ -142,6 +142,15 @@ class RunAgentTurn implements ShouldQueue
         }
 
         if ($turn->decisions() !== null) {
+            // laravel/ai 1.0 applies the decisions — and runs an approved tool — before the first step's middleware
+            // sees the turn, so a resume the budget refuses (the assistant switched off, a limit reached) is stopped
+            // here, before anything runs.
+            if (($refusal = AgentBudget::refusal()) !== null) {
+                $turns->finish($turn, AgentTurn::FAILED, $refusal, metrics: ['finish_reason' => 'refused']);
+
+                return;
+            }
+
             $pending = $store->pendingCalls($turn->conversation_id, $user);
 
             foreach ($turn->decisions() as $callId => $approved) {
@@ -226,7 +235,9 @@ class RunAgentTurn implements ShouldQueue
                         $wrote = true;
                     }
                 } elseif ($event instanceof Error && ! $event->recoverable) {
-                    throw new RuntimeException($event->message);
+                    // The step ends here; laravel/ai raises the error once the event is consumed (StreamErrorException)
+                    // and records the failed turn with the steps it completed. Throwing from this side would skip that.
+                    $status = __('Thinking…');
                 } elseif ($event instanceof StreamEnd) {
                     $end = $event;
                     $usage = $usage->add($event->usage);

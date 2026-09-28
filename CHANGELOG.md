@@ -27,6 +27,8 @@ Upgrading: `composer update packstub/agents` pulls laravel/ai 1.0 and laravel/mc
 - Gemini takes the effort as `thinking_level` (`low`, `medium`, `high`) on the Interactions API laravel/ai 1.0 speaks, in place of `thinkingConfig.thinkingLevel`; an app that passes raw Gemini options through `providerOptions()` renames them the same way (see laravel/ai's upgrade guide).
 - `EnforceBudget` and `AttachContext` run on `PendingStep`: the budget is checked and counted on the first step of a turn; the dynamic block is put on the question again on every step, so the model reads the same messages while it calls tools (`AttachContext` takes the agent in its constructor; `Agent::middleware()` passes it).
 - `AgentConversationStore::storeUserMessage()` and `declinePending()` follow the 1.0 `ConversationStore` signatures; `pendingCalls()` and `pausedRows()` read paused answers by status; the cache breakpoint on Anthropic is a replay block (`AssistantMessage::$replayBlocks`).
+- A resume the budget refuses (the assistant switched off, a limit reached) is refused before the stream starts: laravel/ai 1.0 runs an approved tool before the first step's middleware sees the turn, so the check moved ahead of it and the proposal stays waiting.
+- An error the provider reports in the stream ends the turn through laravel/ai, which records the failed answer with the steps it completed (Regenerate under it), where the job threw first and left the question unanswered.
 - The fresh-install migration creates `agent_conversation_messages` in the 1.0 shape (`steps`, `status`, the `participant_index` with the agent); the new `add_steps_to_agent_conversation_messages_table` migration upgrades an existing table and backfills it in chunks.
 
 ## 1.4.0 — 2026-09-25
