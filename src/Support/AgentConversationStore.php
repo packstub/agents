@@ -20,9 +20,14 @@ use Laravel\Ai\Prompts\AgentPrompt;
 use Laravel\Ai\Responses\AgentResponse;
 use Laravel\Ai\Responses\Data\ToolResult;
 use Laravel\Ai\Storage\DatabaseConversationStore;
+use Packstub\Agents\Ai\Side\ClassifierAgent;
+use Packstub\Agents\Ai\Side\SummaryAgent;
+use Packstub\Agents\Ai\Side\TitleAgent;
 use Packstub\Agents\Models\AgentAnswerVersion;
 use Packstub\Agents\Models\AgentMessageFeedback;
 use Packstub\Agents\Models\AgentPinnedConversation;
+use Packstub\Agents\Models\AgentTurn;
+use Packstub\Agents\Models\ConversationClassification;
 use Packstub\Agents\Models\ConversationSummary;
 use Throwable;
 
@@ -247,7 +252,90 @@ class AgentConversationStore extends DatabaseConversationStore
             $this->settlePausedRows($conversationId, array_keys($prompt->approvalDecisions->all()));
         }
 
-        return parent::storeAssistantMessage($conversationId, $participantType, $participantId, $prompt, $response, $exception);
+        $messageId = parent::storeAssistantMessage($conversationId, $participantType, $participantId, $prompt, $response, $exception);
+
+        if ($messageId !== null) {
+            $this->redactMessage($messageId, $conversationId);
+        }
+
+        return $messageId;
+    }
+
+    /** The results an approval produced are written to the paused answer before the run continues: redacted there too. */
+    public function storeApprovalResults(string $conversationId, array $toolResults): void
+    {
+        parent::storeApprovalResults($conversationId, $toolResults);
+
+        if ($toolResults === [] || ! AgentRedactor::enabled()) {
+            return;
+        }
+
+        $ids = array_map(fn (ToolResult $result) => $result->id, $toolResults);
+
+        foreach ($this->table($this->messagesTable())->where('conversation_id', $conversationId)->where('role', 'assistant')->orderByDesc('id')->limit(20)->get(['id', 'steps']) as $row) {
+            if (array_intersect(array_column(self::callsOf($row), 'id'), $ids) !== []) {
+                $this->redactMessage($row->id, $conversationId);
+            }
+        }
+    }
+
+    /**
+     * Take secrets and personal data out of a stored answer (config `redact`): its text, each step's text and
+     * reasoning, and every tool result kept with it — what the person reads in the transcript and what the model
+     * reads again as history. The raw provider blocks a paused answer keeps for its resume are left as they are
+     * (the provider needs them byte for byte) and go when the turn completes.
+     */
+    protected function redactMessage(string $messageId, string $conversationId): void
+    {
+        if (! AgentRedactor::enabled()) {
+            return;
+        }
+
+        $row = $this->table($this->messagesTable())->where('id', $messageId)->first(['id', 'content', 'steps']);
+
+        if (! $row) {
+            return;
+        }
+
+        $redactor = app(AgentRedactor::class);
+        $content = $redactor->redact((string) $row->content);
+        $changed = $content !== (string) $row->content;
+
+        // Decoded as objects, so everything that is not touched — the raw blocks above all — is written back as it was.
+        $steps = json_decode((string) $row->steps);
+
+        foreach (is_array($steps) ? $steps : [] as $step) {
+            if (! is_object($step)) {
+                continue;
+            }
+
+            foreach (['content', 'reasoning'] as $key) {
+                if (is_string($step->{$key} ?? null) && ($clean = $redactor->redact($step->{$key})) !== $step->{$key}) {
+                    $step->{$key} = $clean;
+                    $changed = true;
+                }
+            }
+
+            foreach (is_array($step->tool_calls ?? null) ? $step->tool_calls : [] as $call) {
+                if (! is_object($call) || ! property_exists($call, 'result') || $call->result === null) {
+                    continue;
+                }
+
+                $result = is_string($call->result) ? $call->result : json_decode((string) json_encode($call->result), true);
+                $clean = $redactor->redactResult($result);
+
+                if ($clean !== $result) {
+                    $call->result = $clean;
+                    $changed = true;
+                }
+            }
+        }
+
+        if ($changed) {
+            $this->table($this->messagesTable())->where('id', $messageId)->update(['content' => $content, 'steps' => is_array($steps) ? json_encode($steps) : $row->steps]);
+        }
+
+        $redactor->report(['conversation' => $conversationId, 'message' => $messageId]);
     }
 
     /**
@@ -430,6 +518,57 @@ class AgentConversationStore extends DatabaseConversationStore
         $this->touchConversation($conversationId, now());
     }
 
+    /**
+     * Move a recorded question to the end of the conversation and return its new id: a question that never got an
+     * answer and was followed by others is sent again as the newest one, so its answer lands under it. The row
+     * keeps its text, files and mentions; its earlier answers (versions) and its turns follow the new id.
+     */
+    public function moveQuestionToEnd(string $conversationId, string $messageId): string
+    {
+        $newId = (string) Str::uuid7();
+        $now = now();
+
+        $moved = $this->table($this->messagesTable())
+            ->where('conversation_id', $conversationId)
+            ->where('id', $messageId)
+            ->where('role', 'user')
+            ->update(['id' => $newId, 'created_at' => $now, 'updated_at' => $now]);
+
+        if ($moved === 0) {
+            return $messageId;
+        }
+
+        AgentAnswerVersion::query()->where('conversation_id', $conversationId)->where('question_id', $messageId)->update(['question_id' => $newId]);
+        AgentTurn::query()->forConversation($conversationId)->where('message_id', $messageId)->update(['message_id' => $newId]);
+        $this->touchConversation($conversationId, $now);
+
+        return $newId;
+    }
+
+    /**
+     * The page context the conversation was last asked with ("orders/12"): the newest question that recorded one,
+     * else — for a chat from before questions recorded it — the newest turn's. Null for a chat about no record.
+     */
+    public function contextOf(string $conversationId): ?string
+    {
+        $metas = $this->table($this->messagesTable())
+            ->where('conversation_id', $conversationId)
+            ->where('role', 'user')
+            ->orderByDesc('id')
+            ->limit(50)
+            ->pluck('meta');
+
+        foreach ($metas as $meta) {
+            $meta = is_string($meta) ? json_decode($meta, true) : $meta;
+
+            if (is_array($meta) && is_string($meta['context'] ?? null) && $meta['context'] !== '') {
+                return $meta['context'];
+            }
+        }
+
+        return AgentTurn::query()->forConversation($conversationId)->whereNotNull('context')->orderByDesc('id')->value('context');
+    }
+
     /** The turn about to run answers this pre-stored question (null: none, the SDK stores the question itself). */
     public function answering(?string $messageId): void
     {
@@ -464,15 +603,10 @@ class AgentConversationStore extends DatabaseConversationStore
         $this->cacheBreakpointsFor = $provider?->driver() === 'anthropic' ? $provider->name() : null;
     }
 
-    /** A summarizer on the provider's cheapest model, as titleConversation() uses it. */
+    /** A summarizer on the provider's cheapest model: the SummaryAgent side agent, which answers with the summary as a field. */
     public static function providerSummarizer(TextProvider $provider): Closure
     {
-        return fn (string $prompt): string => (string) $provider->textGenerationLoop()->generate(
-            $provider,
-            $provider->cheapestTextModel(),
-            'You maintain the running summary of a conversation between a person and a back-office assistant. Merge the existing summary (if any) with the new messages into one summary of at most 300 words, in the language of the conversation. Keep every fact, number, record identifier, decision, open question and what the person asked for; drop pleasantries and the assistant\'s wording. Respond with the summary only.',
-            [new UserMessage($prompt)],
-        )->text;
+        return fn (string $prompt): string => (string) (SummaryAgent::run($prompt, $provider)['summary'] ?? '');
     }
 
     /**
@@ -587,12 +721,17 @@ class AgentConversationStore extends DatabaseConversationStore
         $kept = 0;
         $questions = 0;
 
+        // Newest first: an exchange is kept whole, from its answer back to its question.
         foreach ($records as $record) {
-            if ($record->role === 'user' && ++$questions > max(0, $keepTurns)) {
+            if ($questions >= max(0, $keepTurns)) {
                 break;
             }
 
             $kept++;
+
+            if ($record->role === 'user') {
+                $questions++;
+            }
         }
 
         $dropped = $records->slice($kept)->reverse()->values();
@@ -812,18 +951,52 @@ class AgentConversationStore extends DatabaseConversationStore
         }
 
         try {
-            $response = $provider->textGenerationLoop()->generate(
-                $provider,
-                $provider->cheapestTextModel(),
-                'Generate a concise 3-5 word title for a conversation that starts with the following message. Use the same language as the message. Respond with only the title, no quotes or punctuation.',
-                [new UserMessage(Str::limit($prompt, 500))],
-            );
+            $title = (string) (TitleAgent::run(Str::limit($prompt, 500), $provider)['title'] ?? '');
 
-            if (($title = trim(Str::limit($response->text, 100))) !== '') {
+            if (($title = trim(Str::limit(trim($title, " \t\n\r\"'"), 100))) !== '') {
                 $this->table($this->conversationsTable())->where('id', $conversationId)->update(['title' => $title]);
             }
         } catch (Throwable) {
             // The question stays as the title.
+        }
+    }
+
+    /**
+     * Classify the conversation from its latest messages — topic, sentiment, resolved — with the ClassifierAgent
+     * side agent on the provider's cheapest model, and keep the result next to it (ConversationClassification),
+     * where a list of chats filters and sorts by it. Off unless config `classify.enabled`; a failure is reported
+     * and leaves the earlier classification in place.
+     */
+    public function classifyConversation(string $conversationId, TextProvider $provider): ?ConversationClassification
+    {
+        if (! (bool) config('packstub-agents.classify.enabled', false)) {
+            return null;
+        }
+
+        try {
+            $records = $this->recordsAfter($conversationId, null)->take(12)->reverse()->values();
+
+            if ($records->isEmpty()) {
+                return null;
+            }
+
+            $verdict = ClassifierAgent::run(Str::limit($this->summaryPrompt(null, $records), 6000), $provider);
+            $topic = Str::limit(Str::lower(trim((string) ($verdict['topic'] ?? ''))), 60, '');
+            $topics = ClassifierAgent::topics();
+
+            if ($topic === '' || ! array_key_exists('resolved', $verdict)) {
+                return null;
+            }
+
+            return ConversationClassification::query()->updateOrCreate(['conversation_id' => $conversationId], [
+                'topic' => $topics === [] || in_array($topic, $topics, true) ? $topic : 'other',
+                'sentiment' => in_array($verdict['sentiment'] ?? null, ClassifierAgent::SENTIMENTS, true) ? $verdict['sentiment'] : 'neutral',
+                'resolved' => (bool) $verdict['resolved'],
+            ]);
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
         }
     }
 
@@ -921,6 +1094,7 @@ class AgentConversationStore extends DatabaseConversationStore
         AgentMessageFeedback::query()->whereIn('message_id', ConversationMessage::query()->where('conversation_id', $conversationId)->select('id'))->delete();
         ConversationMessage::query()->where('conversation_id', $conversationId)->delete();
         ConversationSummary::query()->where('conversation_id', $conversationId)->delete();
+        ConversationClassification::query()->where('conversation_id', $conversationId)->delete();
         AgentAnswerVersion::query()->where('conversation_id', $conversationId)->delete();
         AgentPinnedConversation::query()->where('conversation_id', $conversationId)->delete();
         Conversation::query()->whereKey($conversationId)->delete();

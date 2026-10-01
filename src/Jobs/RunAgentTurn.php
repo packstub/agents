@@ -12,12 +12,15 @@ use Laravel\Ai\Approvals\Decision;
 use Laravel\Ai\Approvals\Decisions;
 use Laravel\Ai\Responses\Data\TextUsage;
 use Laravel\Ai\Streaming\Events\Error;
+use Laravel\Ai\Streaming\Events\ProviderToolEvent;
 use Laravel\Ai\Streaming\Events\ReasoningDelta;
 use Laravel\Ai\Streaming\Events\StreamEnd;
 use Laravel\Ai\Streaming\Events\StreamStart;
 use Laravel\Ai\Streaming\Events\TextDelta;
 use Laravel\Ai\Streaming\Events\ToolCall;
 use Laravel\Ai\Streaming\Events\ToolResult;
+use Packstub\Agents\Ai\Side\ClassifierAgent;
+use Packstub\Agents\Ai\Side\TitleAgent;
 use Packstub\Agents\Events\ProposalDecided;
 use Packstub\Agents\Events\ToolCalled;
 use Packstub\Agents\Events\TurnStarted;
@@ -28,6 +31,7 @@ use Packstub\Agents\Support\AgentAttachments;
 use Packstub\Agents\Support\AgentBudget;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentModels;
+use Packstub\Agents\Support\AgentRedactor;
 use Packstub\Agents\Support\AgentRuntime;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Support\PageContext;
@@ -158,6 +162,10 @@ class RunAgentTurn implements ShouldQueue
             }
         }
 
+        // Secrets and personal data never reach the page or the transcript (config `redact`): every snapshot the page
+        // reads is redacted with the value under way held back, and the turn reports once what it replaced.
+        $redactor = app(AgentRedactor::class)->collecting();
+
         $agent = Agents::agent($turn->context, $turn->model)->continue($turn->conversation_id, as: $user);
         $turns->snapshot($turn, null, __('Thinking…'));
         $store->answering($turn->message_id);
@@ -211,14 +219,14 @@ class RunAgentTurn implements ShouldQueue
                     $sinceWrite += strlen($event->delta);
                     $status = __('Writing…');
                     if (str_contains($event->delta, "\n") || $sinceWrite >= 120) {
-                        $turns->snapshot($turn, $buffer, $status);
+                        $turns->snapshot($turn, $redactor->streaming($buffer), $status);
                         $sinceWrite = 0;
                         $wrote = true;
                     }
                 } elseif ($event instanceof ToolCall) {
                     $tools[] = $event->toolCall->name;
                     $status = __(':tool…', ['tool' => Str::headline($event->toolCall->name)]);
-                    $turns->snapshot($turn, $buffer, $status, $tools);
+                    $turns->snapshot($turn, $redactor->streaming($buffer), $status, $tools);
                     ToolCalled::dispatch($turn, $event->toolCall->id, $event->toolCall->name, $event->toolCall->arguments);
                     $wrote = true;
                 } elseif ($event instanceof ToolResult && ! $event->preliminary) { // a sub-agent's progress is preliminary: not a result yet
@@ -226,12 +234,20 @@ class RunAgentTurn implements ShouldQueue
                     if ($buffer !== '') {
                         $buffer .= "\n\n";
                     }
-                    $turns->snapshot($turn, $buffer, $status);
+                    $turns->snapshot($turn, $redactor->streaming($buffer), $status);
                     $wrote = true;
                 } elseif ($event instanceof ReasoningDelta) {
                     if ($status !== __('Reasoning…')) {
                         $status = __('Reasoning…');
-                        $turns->snapshot($turn, $buffer, $status);
+                        $turns->snapshot($turn, $redactor->streaming($buffer), $status);
+                        $wrote = true;
+                    }
+                } elseif ($event instanceof ProviderToolEvent) {
+                    // A tool the provider runs itself (web search, file search): the status line says so while it works.
+                    $working = self::providerToolStatus($event);
+                    if ($event->status !== 'completed' && $event->status !== 'result_received' && $status !== $working) {
+                        $status = $working;
+                        $turns->snapshot($turn, $redactor->streaming($buffer), $status);
                         $wrote = true;
                     }
                 } elseif ($event instanceof Error && ! $event->recoverable) {
@@ -255,6 +271,7 @@ class RunAgentTurn implements ShouldQueue
             }
 
             if ($stopped) {
+                $buffer = $redactor->redact($buffer);
                 if (trim($buffer) !== '') {
                     $store->storeStoppedAnswer($turn->conversation_id, $user, $agent::class, $buffer);
                 }
@@ -275,21 +292,42 @@ class RunAgentTurn implements ShouldQueue
                 $provider = app(AiManager::class)->textProviderFor($agent, $answered['provider']);
             }
 
-            if (($turn->input['title'] ?? false) && $turn->prompt() !== null) {
+            // With the assistant faked in a test the title is written only when TitleAgent is faked too: the question
+            // stays the title, and the assistant's fake answers are all the assistant's.
+            if (($turn->input['title'] ?? false) && $turn->prompt() !== null && TitleAgent::runsBeside($agent)) {
                 $store->titleConversation($turn->conversation_id, $turn->prompt(), $provider);
             }
 
-            $turns->finish($turn, AgentTurn::DONE, text: $buffer, metrics: $measure($end?->reason ?? 'dropped'));
+            $turns->finish($turn, AgentTurn::DONE, text: $redactor->redact($buffer), metrics: $measure($end?->reason ?? 'dropped'));
+
+            // What the chat is about, how the person sounds, whether it is resolved (config `classify`): after the
+            // turn ended, so the answer is not held up; with the assistant faked, only when the classifier is too.
+            if ($turn->prompt() !== null && ClassifierAgent::runsBeside($agent)) {
+                $store->classifyConversation($turn->conversation_id, $provider);
+            }
         } catch (Throwable $e) {
             // A refusal by a middleware (a budget spent, a guard) is the turn's outcome, not an error to report.
             if (! $e instanceof TurnRefused) {
                 report($e);
             }
-            $turns->finish($turn, AgentTurn::FAILED, $e->getMessage(), text: $buffer, metrics: $measure($e instanceof TurnRefused ? 'refused' : 'failed'));
+            $turns->finish($turn, AgentTurn::FAILED, $e->getMessage(), text: $redactor->redact($buffer), metrics: $measure($e instanceof TurnRefused ? 'refused' : 'failed'));
         } finally {
             // The store is a request-scoped singleton and must not carry a turn's state into the next one.
             $store->answering(null);
             $store->summarizeWith(null);
+            $redactor->collecting(false)->report(['turn' => $turn->id, 'conversation' => $turn->conversation_id], force: true);
         }
+    }
+
+    /** The status line while the provider runs one of its own tools: a web search, a search of the documents, or just work. */
+    public static function providerToolStatus(ProviderToolEvent $event): string
+    {
+        $what = strtolower($event->type.' '.(is_string($event->data['name'] ?? null) ? $event->data['name'] : ''));
+
+        return match (true) {
+            str_contains($what, 'web_search') || str_contains($what, 'google_search') => __('Searching the web…'),
+            str_contains($what, 'file_search') => __('Searching the knowledge base…'),
+            default => __('Working…'),
+        };
     }
 }

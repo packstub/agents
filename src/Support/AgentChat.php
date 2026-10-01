@@ -23,6 +23,7 @@ use Packstub\Agents\Models\AgentAnswerVersion;
 use Packstub\Agents\Models\AgentMessageFeedback;
 use Packstub\Agents\Models\AgentPinnedConversation;
 use Packstub\Agents\Models\AgentTurn;
+use Packstub\Agents\Models\ConversationClassification;
 use Throwable;
 
 /**
@@ -63,6 +64,12 @@ class AgentChat
 
         if ($conversation !== null && ! $chat->owns($conversation)) {
             throw (new ModelNotFoundException)->setModel(Conversation::class, [$conversation]);
+        }
+
+        // A chat opened from a record stays about that record: reopened without a context, it takes the one its
+        // last question was asked with.
+        if ($conversation !== null && $context === null) {
+            $chat->context = app(AgentConversationStore::class)->contextOf($conversation);
         }
 
         return $chat;
@@ -225,6 +232,12 @@ class AgentChat
         return PageContext::resolve($this->context)['label'] ?? null;
     }
 
+    /** The page of the record the chat is about, for a surface to link its label to (null without one). */
+    public function contextUrl(): ?string
+    {
+        return PageContext::url($this->context);
+    }
+
     /**
      * The starter questions an empty chat offers (Agent::suggestions, with the page context): none once the
      * conversation exists.
@@ -311,7 +324,7 @@ class AgentChat
                     'text' => (string) $m->content,
                     'html' => $m->role === 'assistant' ? Markdown::render((string) $m->content) : e((string) $m->content),
                     // A write tool stays a proposal row (waiting / approved / rejected) after the decision, when the paused list is empty again.
-                    'tools' => $calls->map(fn ($call) => [
+                    'tools' => [...$calls->map(fn ($call) => [
                         'id' => $call['id'] ?? null,
                         'name' => Str::headline((string) ($call['name'] ?? '')),
                         'tool' => (string) ($call['name'] ?? ''),
@@ -322,7 +335,8 @@ class AgentChat
                         'result' => $results->get($call['id'] ?? null)['result'] ?? null,
                         'rejected' => (bool) ($results->get($call['id'] ?? null)['denied'] ?? false),
                         'readOnly' => ! $writeTools->has($call['name'] ?? '') && ! $everPaused->contains($call['id'] ?? null),
-                    ])->values()->all(),
+                    ])->values()->all(), ...($m->role === 'assistant' ? self::providerCalls($m->steps ?? []) : [])],
+                    'sources' => $m->role === 'assistant' ? self::sources($m->meta) : [], // the web pages the answer cites (a provider's web search): title and url
                     'charts' => $charts,
                     'tables' => $tables,
                     'rating' => $feedback->get($m->id)?->rating,
@@ -340,6 +354,7 @@ class AgentChat
                     'cutShort' => AgentConversationStore::cutShort($m->meta),
                     'answeredBy' => AgentConversationStore::answeredBy($m->meta),
                     'unanswered' => false,
+                    'ended' => null, // on an unanswered question: how its last turn ended (status, reason, error)
                     'editable' => false,
                     'regenerable' => false,
                     'continuable' => false,
@@ -363,6 +378,14 @@ class AgentChat
             $list->put($lastQuestion, [...$list[$lastQuestion], 'editable' => true]);
         }
 
+        // A question followed by another question was recorded but never answered (the provider failed, a middleware
+        // refused it, the person stopped it) and the chat went on: it gets a Retry where it stands.
+        foreach ($list->keys() as $i) {
+            if ($list[$i]['role'] === 'user' && ($list[$i + 1]['role'] ?? null) === 'user') {
+                $list->put($i, [...$list[$i], 'unanswered' => true]);
+            }
+        }
+
         $last = $list->last();
 
         if ($last['role'] === 'user') {
@@ -375,7 +398,114 @@ class AgentChat
             $list->push([...$list->pop(), 'regenerable' => true, 'continuable' => $last['cutShort'] === 'length']);
         }
 
-        return $list;
+        return $this->withHowTheyEnded($list);
+    }
+
+    /**
+     * Say on each unanswered question how its last turn ended — failed, refused by a middleware or stopped — so a
+     * surface can tell the person why under the question itself, not only under the last one.
+     *
+     * @param  Collection<int, array<string, mixed>>  $list
+     * @return Collection<int, array<string, mixed>>
+     */
+    protected function withHowTheyEnded(Collection $list): Collection
+    {
+        $unanswered = $list->where('unanswered', true)->pluck('id');
+
+        if ($unanswered->isEmpty()) {
+            return $list;
+        }
+
+        $ended = AgentTurn::query()
+            ->forConversation($this->conversation)
+            ->whereIn('message_id', $unanswered)
+            ->whereIn('status', [AgentTurn::FAILED, AgentTurn::STOPPED])
+            ->orderBy('id')
+            ->get(['id', 'message_id', 'status', 'finish_reason', 'error'])
+            ->keyBy('message_id'); // the newest turn of each question
+
+        return $list->map(fn (array $message) => $message['unanswered'] && ($turn = $ended->get($message['id']))
+            ? [...$message, 'ended' => ['status' => $turn->status, 'reason' => $turn->finish_reason, 'error' => $turn->error]]
+            : $message);
+    }
+
+    /**
+     * The searches the provider ran itself during an answer (a web search, a file search over a vector store), as
+     * read-only entries of the tool list: the tool's name and the query, where the provider reports one. Providers
+     * name these differently (Anthropic: a `server_tool_use` block named web_search; OpenAI: a `web_search_call`
+     * item), and their result blocks are left out.
+     *
+     * @param  list<array<string, mixed>>  $steps
+     * @return list<array<string, mixed>>
+     */
+    public static function providerCalls(array $steps): array
+    {
+        $calls = [];
+
+        foreach ($steps as $step) {
+            foreach ((array) ($step['provider_tool_calls'] ?? []) as $call) {
+                $type = is_array($call) ? (string) ($call['type'] ?? '') : '';
+
+                if ($type === '' || str_ends_with($type, '_result')) {
+                    continue;
+                }
+
+                $data = (array) ($call['data'] ?? []);
+
+                $name = (string) (is_string($data['name'] ?? null) ? $data['name'] : preg_replace('/_call$/', '', $type));
+                $query = $data['input']['query'] ?? $data['action']['query'] ?? $data['query'] ?? null;
+                $id = (string) ($call['id'] ?? '');
+
+                $calls[$id !== '' ? $id : count($calls)] = [
+                    'id' => $id !== '' ? $id : null,
+                    'name' => Str::headline($name),
+                    'tool' => $name,
+                    'question' => Str::headline($name),
+                    'arguments' => is_string($query) && $query !== '' ? ['query' => $query] : [],
+                    'pending' => false,
+                    'held' => null,
+                    'result' => null,
+                    'rejected' => false,
+                    'readOnly' => true,
+                ];
+            }
+        }
+
+        return array_values($calls);
+    }
+
+    /**
+     * The pages an answer cites, as the provider reported them with its web search: each url once, with its title.
+     *
+     * @return list<array{title: string, url: string}>
+     */
+    public static function sources(mixed $meta): array
+    {
+        $meta = is_string($meta) ? json_decode($meta, true) : $meta;
+        $sources = [];
+
+        foreach ((array) (is_array($meta) ? ($meta['citations'] ?? []) : []) as $citation) {
+            $url = is_array($citation) ? ($citation['url'] ?? null) : null;
+
+            if (is_string($url) && preg_match('/^https?:\/\//i', $url) === 1 && ! isset($sources[$url])) {
+                $sources[$url] = ['title' => trim((string) ($citation['title'] ?? '')) ?: (string) parse_url($url, PHP_URL_HOST), 'url' => $url];
+            }
+        }
+
+        return array_values($sources);
+    }
+
+    /**
+     * What the chat is about, how the person sounds and whether it is resolved, as the classifier read it after the
+     * last answer (config `classify`); null before it ran or while it is off.
+     *
+     * @return array{topic: string, sentiment: string, resolved: bool}|null
+     */
+    public function classification(): ?array
+    {
+        $row = $this->conversation ? ConversationClassification::query()->where('conversation_id', $this->conversation)->first() : null;
+
+        return $row ? ['topic' => (string) $row->topic, 'sentiment' => (string) $row->sentiment, 'resolved' => (bool) $row->resolved] : null;
     }
 
     /**
@@ -678,16 +808,32 @@ class AgentChat
         return $this->startTurn(['decisions' => [$callId => $approve]]);
     }
 
-    /** Send the last question again when it never got an answer. */
-    public function retry(): ?AgentTurn
+    /**
+     * Send a question again when it never got an answer: the last one (the default), or any earlier one by its
+     * message id. An earlier question moves to the end of the chat first, so its answer lands under it and the
+     * assistant reads what was said since; its files and mentions go with it. Null while the chat is busy, for a
+     * question that has its answer, or for an id that is not a question of this chat.
+     */
+    public function retry(?string $messageId = null): ?AgentTurn
     {
         $last = $this->lastQuestion();
+        $question = $messageId === null || $messageId === $last?->id ? $last : $this->questionById($messageId);
 
-        if (! $last || ! $this->idle() || ConversationMessage::query()->where('conversation_id', $this->conversation)->where('id', '>', $last->id)->exists()) {
+        if (! $question || ! $this->idle()) {
             return null;
         }
 
-        return $this->startTurn(['prompt' => (string) $last->content], answering: $last->id);
+        $next = ConversationMessage::query()->where('conversation_id', $this->conversation)->where('id', '>', $question->id)->orderBy('id')->value('role');
+
+        if ($next !== null && $next !== 'user') {
+            return null;
+        }
+
+        $id = $question->id === $last->id
+            ? $question->id
+            : app(AgentConversationStore::class)->moveQuestionToEnd($this->conversation, $question->id);
+
+        return $this->startTurn(self::inputOf($question), answering: $id);
     }
 
     /** Answer the last question again: its answer is dropped and the same recorded question is sent once more. */
@@ -701,7 +847,7 @@ class AgentChat
 
         app(AgentConversationStore::class)->dropMessagesAfter($this->conversation, $last->id);
 
-        return $this->startTurn(['prompt' => (string) $last->content], answering: $last->id);
+        return $this->startTurn(self::inputOf($last), answering: $last->id);
     }
 
     /** Edit the last question and send it again: its answer is dropped, the recorded question rewritten. */
@@ -718,7 +864,26 @@ class AgentChat
         $store->dropMessagesAfter($this->conversation, $last->id);
         $store->rewriteQuestion($this->conversation, $last->id, $prompt);
 
-        return $this->startTurn(['prompt' => $prompt], answering: $last->id);
+        // The files stay with the question; a record stays mentioned while the new text still names it.
+        $input = self::inputOf($last);
+        $mentions = array_values(array_filter($input['mentions'] ?? [], fn (array $m) => str_contains($prompt, '@'.$m['label'])));
+
+        return $this->startTurn(array_filter(['prompt' => $prompt, 'attachments' => $input['attachments'] ?? [], 'mentions' => $mentions]), answering: $last->id);
+    }
+
+    /**
+     * What a recorded question sends when it is asked again: its text, the files attached to it and the records
+     * it mentions, as the turn that first asked it carried them.
+     *
+     * @return array{prompt: string, attachments?: list<array<string, mixed>>, mentions?: list<array{ref: string, label: string}>}
+     */
+    protected static function inputOf(ConversationMessage $question): array
+    {
+        return array_filter([
+            'prompt' => (string) $question->content,
+            'attachments' => AgentConversationStore::attachmentsOf($question->attachments),
+            'mentions' => AgentConversationStore::mentionsOf($question->meta),
+        ], fn ($value) => $value !== []);
     }
 
     /** Stop the running turn; the job stores what it has so far. */
@@ -985,6 +1150,16 @@ class AgentChat
         }
 
         return ConversationMessage::query()->where('conversation_id', $this->conversation)->where('role', 'user')->orderByDesc('id')->first();
+    }
+
+    /** A question of the conversation by its message id. */
+    protected function questionById(string $messageId): ?ConversationMessage
+    {
+        if (! $this->conversation) {
+            return null;
+        }
+
+        return ConversationMessage::query()->where('conversation_id', $this->conversation)->where('role', 'user')->whereKey($messageId)->first();
     }
 
     protected function queuedTurn(string $id): ?AgentTurn

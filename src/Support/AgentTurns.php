@@ -125,6 +125,7 @@ class AgentTurns
                     array_filter([
                         'continuation' => ($turn->input['continuation'] ?? false) ? true : null,
                         'mentions' => ($turn->input['mentions'] ?? []) !== [] ? array_values((array) $turn->input['mentions']) : null,
+                        'context' => filled($turn->context) ? $turn->context : null, // the record the chat is about stays with the conversation
                     ], fn ($v) => $v !== null),
                 );
 

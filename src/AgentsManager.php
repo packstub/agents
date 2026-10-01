@@ -14,6 +14,8 @@ use Packstub\Agents\Ai\WorkspaceCredentials;
 use Packstub\Agents\Contracts\AgentContext;
 use Packstub\Agents\Contracts\AgentResource;
 use Packstub\Agents\Mcp\AgentServer;
+use Packstub\Agents\Mcp\Tools\SearchKnowledgeBase;
+use Packstub\Agents\Support\KnowledgeBase;
 use ReflectionProperty;
 
 /**
@@ -54,6 +56,10 @@ class AgentsManager
     protected ?Closure $limitsAuthorize = null;
 
     protected ?Closure $participantByEmail = null;
+
+    protected ?Closure $redactor = null;
+
+    protected ?KnowledgeBase $knowledgeBase = null;
 
     protected ?Closure $tenantResolver = null;
 
@@ -205,19 +211,84 @@ class AgentsManager
     public function toolClasses(): array
     {
         if ($this->tools !== []) {
-            return $this->tools;
+            return $this->withOptInTools($this->tools);
         }
 
         $property = new ReflectionProperty($this->serverClass(), 'tools');
         $default = array_values((array) $property->getDefaultValue());
 
         if ($property->getDeclaringClass()->getName() !== AgentServer::class) {
-            return $default;
+            return $this->withOptInTools($default);
         }
 
         $added = $this->addedTools instanceof Closure ? ($this->addedTools)() : $this->addedTools;
 
-        return array_values(array_unique([...$default, ...array_values((array) $added)]));
+        return $this->withOptInTools([...$default, ...array_values((array) $added)]);
+    }
+
+    /**
+     * The package's tools an app switches on rather than lists: search-knowledge-base once a searchable knowledge
+     * base is registered. They join whatever list is served, the app's own included.
+     *
+     * @return list<class-string<Tool>>
+     */
+    public function optInTools(): array
+    {
+        return $this->knowledge()?->searchable() ? [SearchKnowledgeBase::class] : [];
+    }
+
+    /**
+     * @param  list<class-string<Tool>>  $tools
+     * @return list<class-string<Tool>>
+     */
+    protected function withOptInTools(array $tools): array
+    {
+        return array_values(array_unique([...$tools, ...$this->optInTools()]));
+    }
+
+    /**
+     * The app's own documents for the assistant to answer "how do I…" from: a model with an embedding column
+     * (pgvector) searched by the search-knowledge-base tool, provider-hosted vector stores searched by laravel/ai's
+     * FileSearch, or a search of the app's own (`using`). See KnowledgeBase for the arguments; config
+     * `knowledge_base` does the same without closures.
+     *
+     * @param  class-string<Model>|null  $model
+     * @param  list<string>  $stores
+     */
+    public function knowledgeBase(
+        ?string $model = null,
+        string $column = 'embedding',
+        string|Closure $title = 'title',
+        string|Closure $content = 'content',
+        string|Closure|null $url = null,
+        float $minSimilarity = 0.5,
+        int $limit = 5,
+        ?Closure $query = null,
+        ?Closure $using = null,
+        array $stores = [],
+        ?string $ability = null,
+    ): void {
+        $this->knowledgeBase = new KnowledgeBase($model, $column, $title, $content, $url, $minSimilarity, $limit, $query, $using, array_values($stores), $ability);
+    }
+
+    /** The knowledge base the app registered, or the one config `knowledge_base` describes; null without either. */
+    public function knowledge(): ?KnowledgeBase
+    {
+        return $this->knowledgeBase ?? KnowledgeBase::fromConfig();
+    }
+
+    /**
+     * A redaction of the app's own, run after the built-in patterns wherever config `redact` applies —
+     * fn (string $text): string, returning the text with whatever must not be shown or stored replaced.
+     */
+    public function redactUsing(?Closure $callback): void
+    {
+        $this->redactor = $callback;
+    }
+
+    public function redactor(): ?Closure
+    {
+        return $this->redactor;
     }
 
     /** @param  list<class-string<AgentResource>>  $resources */

@@ -68,6 +68,9 @@ class AgentServer extends Server
         // A server class that lists its own tools keeps them; the base list is what the app registered, or the generic tools.
         if ($this->tools === [] || (new ReflectionProperty($this, 'tools'))->getDeclaringClass()->getName() === self::class) {
             $this->tools = Agents::toolClasses();
+        } else {
+            // What the app switched on rather than listed (search-knowledge-base) joins the class's own list.
+            $this->tools = array_values(array_unique([...$this->tools, ...Agents::optInTools()]));
         }
 
         if ($this->name === 'Assistant') {

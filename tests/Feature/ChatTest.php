@@ -32,39 +32,6 @@ beforeEach(function () {
     Agents::authorizeUsing(fn (string $ability) => Abilities::allows($ability));
 });
 
-/**
- * A row in the vocabulary laravel/ai 0.x wrote (tool_calls, tool_results, approval_state), as the table stores it now:
- * the steps and the status, the way the upgrade migration rewrites existing rows.
- */
-function legacyRow(array $row): array
-{
-    if (isset($row['steps'])) {
-        return $row;
-    }
-
-    [$steps, $status] = AgentConversationStore::stepsFromLegacyRow($row);
-    unset($row['tool_calls'], $row['tool_results'], $row['approval_state']);
-
-    return $row + ['steps' => $steps, 'status' => $status];
-}
-
-/** A conversation of the person with the given rows (role, content, tool calls…), ids ordered in time. */
-function conversationWith(object $user, array $rows, string $title = 'Renames'): string
-{
-    $conversation = Conversation::query()->create(['id' => (string) Str::uuid(), 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id, 'title' => $title]);
-    $at = now()->subMinutes(10);
-
-    foreach ($rows as $row) {
-        usleep(1100);
-        ConversationMessage::query()->create(legacyRow($row + [
-            'id' => (string) Str::uuid7(), 'created_at' => $at = $at->addMinute(), 'conversation_id' => $conversation->id, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id,
-            'agent' => WidgetAgent::class, 'role' => 'assistant', 'content' => '', 'attachments' => [], 'meta' => [], 'usage' => [],
-        ]));
-    }
-
-    return $conversation->id;
-}
-
 it('answers a question into a persisted conversation, rates the answer, and keeps one person\'s chats from another', function () {
     $user = $this->user();
     actingAs($user);
@@ -82,7 +49,7 @@ it('answers a question into a persisted conversation, rates the answer, and keep
     expect($turn)->toBeInstanceOf(AgentTurn::class)
         ->and($turn->status)->toBe(AgentTurn::DONE) // the sync queue ran it
         ->and($chat->conversation())->not->toBeNull()
-        ->and($chat->title())->toBe('Fake response for prompt: How many widgets are live?') // the provider titles a new chat after its first answer
+        ->and($chat->title())->toBe('How many widgets are live?') // the question, until the TitleAgent side agent titles the chat (SideAgentsTest)
         ->and($chat->suggestions())->toBe([]);
 
     $messages = $chat->messages();

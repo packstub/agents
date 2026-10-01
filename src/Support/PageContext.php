@@ -32,6 +32,28 @@ class PageContext
         ];
     }
 
+    /**
+     * The page a person opens for the record behind a reference: the resource's agentRecordUrl() (InteractsWithAgent:
+     * its view page, else edit, else the list), else the `url` its summary carries. Null without a record or a page.
+     */
+    public static function url(?string $ref): ?string
+    {
+        if (! $ref || ! preg_match('/^([a-z0-9_]+)\/([A-Za-z0-9-]+)$/', $ref, $m) || ! AgentResources::has($m[1])) {
+            return null;
+        }
+
+        $resource = AgentResources::find($m[1]);
+        $record = self::record($resource, $m[2]);
+
+        if (! $record) {
+            return null;
+        }
+
+        $url = method_exists($resource, 'agentRecordUrl') ? $resource::agentRecordUrl($record) : ($resource::agentSummary($record)['url'] ?? null);
+
+        return is_string($url) && $url !== '' ? $url : null;
+    }
+
     /** The context reference for the page currently being served, if it is a record page of a known resource. */
     public static function fromRequest(): ?string
     {
