@@ -16,6 +16,21 @@
 | `max_tokens` | `4096` | | answer length |
 | `max_conversation_messages` | `40` | | a second ceiling on the history window beside `history.max_tokens`: at most this many earlier rows are replayed, however many fit the token budget |
 | `middleware` | `[]` | | your own agent middleware, run on every turn after the package's guard rails; see [Middleware](assistant.md#middleware) |
+| `prompt_guard.enabled` | `false` | `AGENT_PROMPT_GUARD` | classify every question before the assistant reads it and refuse injections, jailbreaks and data exfiltration; see [The prompt guard](security.md#the-prompt-guard) |
+| `prompt_guard.provider`, `prompt_guard.model` | `null` | `AGENT_PROMPT_GUARD_PROVIDER`, `AGENT_PROMPT_GUARD_MODEL` | where the classifier runs; `null` = the turn's provider, its cheapest model |
+| `prompt_guard.refuse` | injection, jailbreak, data_exfiltration | | the categories that stop a turn, as a map (`'off_topic' => true` adds one) |
+| `prompt_guard.fail_open` | `true` | | whether a turn runs when the classifier itself fails |
+| `redact.enabled` | `false` | `AGENT_REDACT` | replace secrets and personal data in answers, while they stream and as stored, and in stored tool results; see [Redaction](security.md#redaction) |
+| `redact.detect` | card, ssn, api_key | | the built-in detectors, as a map (`'ssn' => false` switches one off) |
+| `redact.patterns` | `[]` | | your own, label => regex |
+| `redact.replacement` | `[redacted]` | | what a value is replaced with |
+| `classify.enabled` | `false` | `AGENT_CLASSIFY` | classify each chat after an answer (topic, sentiment, resolved); see [Classification](assistant.md#classification) |
+| `classify.topics` | `[]` | | a fixed list of topics to pick from; empty = the model names the topic |
+| `web_search.enabled` | `false` | `AGENT_WEB_SEARCH` | the provider's web search in the chat; see [Web search](tools.md#web-search) |
+| `web_search.allow` | `[]` | `AGENT_WEB_SEARCH_ALLOW` | the domains it may read, comma-separated in env; empty = the whole web |
+| `web_search.max` | `3` | `AGENT_WEB_SEARCH_MAX` | searches per turn |
+| `web_search.location` | none | | `city`, `region`, `country` to refine results |
+| `knowledge_base.*` | none | | the app's documents for "how do I…" questions: `model`, `column`, `title`, `content`, `url`, `min_similarity`, `limit`, `stores`, `ability`; see [Knowledge base](tools.md#knowledge-base) |
 | `history.max_tokens` | `24000` | `AGENT_HISTORY_MAX_TOKENS` | the history window, in estimated tokens; what no longer fits is folded into a rolling summary the model reads first |
 | `history.keep_tool_results_turns` | `3` | | tool results older than this many turns are replaced by a one-line placeholder when replayed |
 | `history.notice_share` | `0.7` | | from this share of the window a chat surface suggests continuing in a new chat |
@@ -179,8 +194,10 @@ Agents::enteringTenant(fn (Team $team): ?Closure => ...);
 | `tenantModel(class, ?slugAttribute)` | the workspace model, and the attribute the MCP path names it by |
 | `tenantUsing(fn (): ?Model)` | how the current workspace is found; unregistered, the app is one workspace |
 | `enteringTenant(fn (Model $tenant): ?Closure)` | what a worker or an MCP request does on entering a workspace; the returned closure runs on leaving |
+| `knowledgeBase(model, column, …)` | the app's documents the assistant searches and cites, see [Knowledge base](tools.md#knowledge-base) |
+| `redactUsing(fn (string $text): string)` | a redaction of your own, run after the built-in patterns, see [Redaction](security.md#redaction) |
 
-It also reads back what the app told the package: `name()`, `tenant()`, `inPanel()`, `toolClasses()`, `agentClass()`, `serverClass()`, `resourceClasses()`, `registeredResources()` (the resources with their keys), `middleware()`, `allows($ability)`, `roleLabel()`, `credentials()`, `canManageLimits()`, `tenantModelClass()`, `tenantSlugAttribute()`, `tenantResolver()`, `tenantEnterHook()`, and `context()` — the `AgentContext` that knows who is acting and where (`Support\Context\LaravelContext`, or the Filament plugin's `FilamentContext` in a panel). Tools use it; your own code may too. `agent($pageContext, $modelKey)` builds the configured agent for a turn, the page context and the picker key applied. `agentAccess()`, `agentAccessAbility()`, `agentAccessGroup()`, `hideAskButtonOn()` and `askButtonHiddenOn()` live on the same facade but are read by the Filament plugin only.
+It also reads back what the app told the package: `name()`, `tenant()`, `inPanel()`, `toolClasses()`, `optInTools()`, `knowledge()`, `redactor()`, `agentClass()`, `serverClass()`, `resourceClasses()`, `registeredResources()` (the resources with their keys), `middleware()`, `allows($ability)`, `roleLabel()`, `credentials()`, `canManageLimits()`, `tenantModelClass()`, `tenantSlugAttribute()`, `tenantResolver()`, `tenantEnterHook()`, and `context()` — the `AgentContext` that knows who is acting and where (`Support\Context\LaravelContext`, or the Filament plugin's `FilamentContext` in a panel). Tools use it; your own code may too. `agent($pageContext, $modelKey)` builds the configured agent for a turn, the page context and the picker key applied. `agentAccess()`, `agentAccessAbility()`, `agentAccessGroup()`, `hideAskButtonOn()` and `askButtonHiddenOn()` live on the same facade but are read by the Filament plugin only.
 
 **In a Filament panel**, `AgentsPlugin::make()` has a fluent method for each of these and adds the pages; see [Filament Agents](https://packstub.dev/docs/filament-agents/configuration).
 

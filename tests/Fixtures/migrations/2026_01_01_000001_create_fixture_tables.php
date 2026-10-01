@@ -27,6 +27,16 @@ return new class extends Migration
             $table->timestamps();
         });
 
+        Schema::create('articles', function (Blueprint $table) {
+            $table->id();
+            $table->string('title');
+            $table->text('body');
+            $table->string('link')->nullable();
+            $table->boolean('published')->default(true);
+            $table->text('embedding')->nullable(); // a vector column on pgvector; JSON here
+            $table->timestamps();
+        });
+
         Schema::create('widgets', function (Blueprint $table) {
             $table->id();
             $table->string('name');

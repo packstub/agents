@@ -81,11 +81,84 @@ return [
     'max_conversation_messages' => 40,
 
     // Your own agent middleware, run on every model round-trip of a turn after the package's guard rails (the
-    // budget check): classes with handle(PendingStep $step, Closure $next) — an audit log, redaction, a tenant
-    // check; $step->isFirstStep() tells the question from the tool steps that follow. Throw
+    // budget check, the prompt guard): classes with handle(PendingStep $step, Closure $next) — an audit log, a
+    // tenant check; $step->isFirstStep() tells the question from the tool steps that follow. Throw
     // Packstub\Agents\Exceptions\TurnRefused to stop a turn with a message the person reads under their
     // question. AgentsPlugin::make()->middleware([...]) appends to this list.
     'middleware' => [],
+
+    // The prompt guard: before the assistant reads a question, a side agent on a small model classifies it as safe,
+    // injection, jailbreak, data_exfiltration or off_topic. A category on the refuse list stops the turn with a
+    // friendly message under the question; anything but safe is logged with its reason and fires
+    // Packstub\Agents\Events\PromptFlagged. One extra call per question, so it is off until you switch it on.
+    'prompt_guard' => [
+        'enabled' => (bool) env('AGENT_PROMPT_GUARD', false),
+        // Where the classifier runs: null = the provider the turn runs on, its cheapest model. A local model works
+        // (AGENT_PROMPT_GUARD_PROVIDER=ollama, AGENT_PROMPT_GUARD_MODEL=llama-guard3).
+        'provider' => env('AGENT_PROMPT_GUARD_PROVIDER'),
+        'model' => env('AGENT_PROMPT_GUARD_MODEL'),
+        // The categories that stop a turn. Switch 'off_topic' on to keep the assistant on the workspace.
+        'refuse' => ['injection' => true, 'jailbreak' => true, 'data_exfiltration' => true, 'off_topic' => false],
+        // When the classifier itself fails (the provider is down): true lets the turn run — the tools' ability
+        // checks and approvals still apply — false refuses it.
+        'fail_open' => true,
+    ],
+
+    // Redaction: secrets and personal data are replaced in what the assistant writes — on the answer while it
+    // streams, so a value is never shown and then taken back — and in the tool results stored with it, which the
+    // model reads again as history. Each turn that had something replaced logs one `critical` line and fires
+    // Packstub\Agents\Events\OutputRedacted (the kinds, never the values). Off until you switch it on.
+    'redact' => [
+        'enabled' => (bool) env('AGENT_REDACT', false),
+        // The built-in detectors: payment card numbers (Luhn-checked), US social security numbers, API keys and
+        // tokens (OpenAI, Anthropic, Stripe, AWS, GitHub, Slack, Google, JWTs, Sanctum, private key blocks).
+        'detect' => ['card' => true, 'ssn' => true, 'api_key' => true],
+        // Your own, label => regex: 'iban' => '/\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}\b/'. For anything a regex
+        // cannot say, Agents::redactUsing(fn (string $text): string => …) runs after these.
+        'patterns' => [],
+        'replacement' => '[redacted]',
+    ],
+
+    // Classification: after an answer, a side agent on the provider's cheapest model says what the chat is about
+    // (topic), how the person sounds (sentiment: positive, neutral, negative) and whether they got what they came
+    // for (resolved), kept in agent_conversation_classifications for a list of chats to filter and sort by.
+    // One extra cheap call per question, so it is off until you switch it on.
+    'classify' => [
+        'enabled' => (bool) env('AGENT_CLASSIFY', false),
+        // A fixed list to pick from (['orders', 'billing', 'how-to']; 'other' is added); empty = the model names
+        // the topic in a word or two.
+        'topics' => [],
+    ],
+
+    // Web search in the chat, run by the provider (Anthropic, OpenAI, Gemini, xAI, OpenRouter; a provider without
+    // it answers without). Give it an allow-list: the assistant then reads only those domains, which keeps answers
+    // on sources you trust and web text — a prompt-injection vector — off pages you do not. An empty list means
+    // the whole web. The prompt tells the assistant to keep workspace data and web information apart and to link
+    // what it found; the chat lists the sources under the answer.
+    'web_search' => [
+        'enabled' => (bool) env('AGENT_WEB_SEARCH', false),
+        'allow' => array_values(array_filter(array_map('trim', explode(',', (string) env('AGENT_WEB_SEARCH_ALLOW', ''))))),
+        'max' => (int) env('AGENT_WEB_SEARCH_MAX', 3), // searches per turn
+        'location' => ['city' => null, 'region' => null, 'country' => null], // refines results ('country' => 'RO')
+    ],
+
+    // The knowledge base: the app's own documents — guides, policies, how-to articles — for "how do I…" questions.
+    // `model` is an Eloquent model with an embedding column (pgvector): the search-knowledge-base tool runs a
+    // similarity search over it for the chat and for MCP clients, and `php artisan packstub-agents:embed` fills
+    // the column. `stores` are provider-hosted vector store ids, searched by laravel/ai's FileSearch in the chat.
+    // Agents::knowledgeBase(…) registers the same with closures (how a title, the content and the url are read,
+    // which documents count, a search of your own).
+    'knowledge_base' => [
+        'model' => null, // App\Models\Article::class
+        'column' => 'embedding',
+        'title' => 'title',
+        'content' => 'content',
+        'url' => null, // an attribute holding the article's page, if it has one
+        'min_similarity' => 0.5,
+        'limit' => 5,
+        'stores' => [],
+        'ability' => null, // the ability required to search it; null = any member
+    ],
 
     // What a long chat replays: the most recent messages that fit the token budget (estimated from what is stored),
     // cut on turn boundaries so a tool call keeps its result. Older tool results are replaced by a one-line placeholder,

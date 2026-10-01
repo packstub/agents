@@ -183,3 +183,111 @@ return [
 ```
 
 `type` is one of `bar`, `line`, `pie` or `doughnut`. Prefer this over `draw-chart` for anything over time: the numbers come straight from the query. The `chart` key is part of the tool result either way, so an MCP client or your own front end can draw it too.
+
+## Knowledge base
+
+Your tools answer "how many" and "which one"; a knowledge base answers "how do I" and "what is our policy on": the guides, policies and how-to articles you already have, searched by meaning and cited in the answer. Register it once and the package's `search-knowledge-base` tool joins the tool list, for the chat and for MCP clients, whether the list is your server's or the facade's.
+
+```php
+use App\Models\Article;
+use Packstub\Agents\Facades\Agents;
+
+Agents::knowledgeBase(
+    Article::class,
+    'embedding',                                      // the vector column (pgvector)
+    title: 'title',                                   // an attribute, or fn (Article $a): string
+    content: 'body',
+    url: fn (Article $a) => route('help.show', $a),   // optional: answers link what they cite
+    query: fn ($query) => $query->where('published', true),
+    minSimilarity: 0.5,
+    limit: 5,
+    ability: 'help.view',                             // optional: who may search it
+);
+```
+
+The tool takes a `query` and an optional `limit`, and runs laravel's `whereVectorSimilarTo()` over the column: laravel/ai embeds the question with your embeddings provider (`ai.default_for_embeddings`) and the database orders the documents by distance. The model gets the closest ones back, each with its title, its url when it has one and its content cut to an excerpt, plus a note to answer from them and cite them. The prompt gains a rule as well: search the knowledge base first for how-to and policy questions, cite each article used by its title, and say so when it has nothing rather than answering from general knowledge as if it were your guidance.
+
+| Argument | Default | |
+| --- | --- | --- |
+| `model` | | the Eloquent model of a document |
+| `column` | `embedding` | its vector column |
+| `title`, `content` | `title`, `content` | the attributes that are embedded and returned, or closures that read them |
+| `url` | `null` | an attribute or a closure; without it articles are cited by title alone |
+| `minSimilarity` | `0.5` | how close a document must be, from 0 to 1 |
+| `limit` | `5` | how many the model gets at most (it may ask for fewer or more, up to 20) |
+| `query` | `null` | narrows the documents searched and embedded: published ones, the workspace's |
+| `using` | `null` | a search of your own in place of the similarity query, see below |
+| `stores` | `[]` | provider-hosted vector stores, see below |
+| `ability` | `null` | the ability required to search; `null` = any member |
+
+The same without closures goes in config, under `knowledge_base` (`model`, `column`, `title`, `content`, `url` as an attribute, `min_similarity`, `limit`, `stores`, `ability`).
+
+### The embeddings
+
+The column is a pgvector `vector` on PostgreSQL, cast to `array` on the model:
+
+```php
+Schema::ensureVectorExtensionExists();
+
+Schema::create('articles', function (Blueprint $table) {
+    $table->id();
+    $table->string('title');
+    $table->text('body');
+    $table->vector('embedding', dimensions: 1536)->nullable()->index();
+    $table->timestamps();
+});
+```
+
+`php artisan packstub-agents:embed` fills it: every document without an embedding is embedded from its title and content, a batch per request (`--chunk=50`). `--fresh` embeds all of them again, after you changed the embeddings model; `--tenant=` runs it inside one workspace. Schedule it, or embed a document when it is saved:
+
+```php
+static::saved(function (Article $article) {
+    if ($article->wasChanged(['title', 'body'])) {
+        $article->updateQuietly(['embedding' => Str::of(Agents::knowledge()->text($article))->toEmbeddings()]);
+    }
+});
+```
+
+### A search of your own
+
+Documents in Scout, Typesense, Meilisearch or behind a search API: pass `using`, a closure that takes the question and the limit and returns models or `['title' => …, 'content' => …, 'url' => …]` arrays. The same tool serves it.
+
+```php
+Agents::knowledgeBase(using: fn (string $question, int $limit) => Article::search($question)->take($limit)->get(), content: 'body');
+```
+
+### Provider-hosted stores
+
+When the documents live in a vector store at the provider (laravel/ai's `Stores::create()` and `$store->add()`), name the stores and the chat gets laravel/ai's `FileSearch` provider tool over them:
+
+```php
+Agents::knowledgeBase(stores: ['vs_6a1f…']);
+```
+
+The provider runs the search itself, so there is no tool call of yours in the transcript and nothing for an MCP client; it needs a provider with file search (OpenAI, Gemini, xAI, Azure OpenAI) and is left out of a step that runs on another. Both shapes can be registered together.
+
+## Web search
+
+The chat can search the web, with the search run by the provider (laravel/ai's `WebSearch` provider tool): for the things your tools cannot know, a carrier's tracking page, a tax rate, a vendor's documentation. It is off until you switch it on, and it takes an allow-list:
+
+```dotenv
+AGENT_WEB_SEARCH=true
+AGENT_WEB_SEARCH_ALLOW=docs.acme.com,laravel.com,anaf.ro
+AGENT_WEB_SEARCH_MAX=3
+```
+
+```php
+'web_search' => [
+    'enabled' => env('AGENT_WEB_SEARCH', false),
+    'allow' => ['docs.acme.com', 'laravel.com', 'anaf.ro'], // empty = the whole web
+    'max' => 3,                                              // searches per turn
+    'location' => ['city' => null, 'region' => null, 'country' => 'RO'],
+],
+```
+
+- **The allow-list is the point.** With it the assistant reads only those domains, which keeps its answers on sources you trust and keeps web text, a prompt-injection vector like any other untrusted input, off pages you do not. An empty list searches the whole web.
+- **Two kinds of facts, kept apart.** The prompt gains two rules: web search is for public information only, never for the workspace's own records, and an answer says which is which ("In your workspace…", "According to laravel.com…") with a link to the page each web fact came from. `AgentChat::messages()` lists the cited pages on the answer as `sources` (title and url), and the searches the provider ran appear in its `tools` as read-only `Web Search` entries with their query. While a search runs the status line says "Searching the web…".
+- **Provider support.** Anthropic, OpenAI, Gemini, xAI, Azure OpenAI and OpenRouter run it. A turn on a provider that does not (a local Ollama model, a failover to Mistral) answers without it: the `SupportedProviderTools` middleware drops the tool from that step rather than failing the turn.
+- **Cost.** Providers bill a search on top of the tokens it adds; `max` caps how many one turn may run.
+
+Web search belongs to the chat. An MCP client has its own.

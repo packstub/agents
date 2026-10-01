@@ -5,6 +5,7 @@ namespace Packstub\Agents;
 use Illuminate\Support\Facades\Route;
 use Laravel\Ai\Contracts\ConversationStore;
 use Laravel\Mcp\Facades\Mcp;
+use Packstub\Agents\Commands\EmbedCommand;
 use Packstub\Agents\Commands\MakeAgentCommand;
 use Packstub\Agents\Commands\MakeToolCommand;
 use Packstub\Agents\Commands\RunCommand;
@@ -15,6 +16,7 @@ use Packstub\Agents\Http\Controllers\TurnStreamController;
 use Packstub\Agents\Http\Middleware\AcceptJson;
 use Packstub\Agents\Http\Middleware\AuthenticateEmailWebhook;
 use Packstub\Agents\Support\AgentConversationStore;
+use Packstub\Agents\Support\AgentRedactor;
 use Packstub\Agents\Support\Context\LaravelContext;
 use Packstub\Agents\Support\Installed;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
@@ -34,6 +36,7 @@ class AgentsServiceProvider extends PackageServiceProvider
             ->hasCommand(MakeAgentCommand::class)
             ->hasCommand(MakeToolCommand::class)
             ->hasCommand(RunCommand::class)
+            ->hasCommand(EmbedCommand::class)
             ->hasViews('packstub-agents-mail')
             ->hasInstallCommand(function (InstallCommand $command): void {
                 $command
@@ -69,6 +72,9 @@ class AgentsServiceProvider extends PackageServiceProvider
         config()->set('packstub-agents', array_replace_recursive($defaults, config('packstub-agents', [])));
 
         $this->app->singleton(AgentsManager::class);
+
+        // One redactor per request or job: it remembers what a turn replaced, to report it once.
+        $this->app->scoped(AgentRedactor::class);
 
         // Who is acting and where: a plain Laravel app's guard and workspace closure; AgentsPlugin rebinds the panel's.
         $this->app->singleton(AgentContext::class, LaravelContext::class);
