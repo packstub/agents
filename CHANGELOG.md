@@ -2,7 +2,7 @@
 
 All notable changes to `packstub/agents` are documented here.
 
-## 1.6.0 — 2026-09-30
+## 1.6.0 — 2026-10-01
 
 The assistant reaches beyond the records and gets guard rails to switch on: a knowledge base it searches and cites, the provider's web search held to an allow-list, a prompt guard in front of every question, redaction of secrets in answers and stored tool results, and a classification of every chat. The housekeeping calls become structured-output side agents, and a question that never got its answer can be retried wherever it sits. Filament Agents 1.13 shows it in a panel.
 
