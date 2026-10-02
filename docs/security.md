@@ -19,6 +19,7 @@ This package lets a language model read and, with approval or a write token, cha
 - **A token can be narrowed to named tools.** `tool:{name}` abilities limit a token to exactly those tools: the others are not listed and are refused by name. The role is checked first on every call, so a token never widens what the person may do, only narrows it.
 - **Tokens are bound to a person and, with tenancy, to a workspace, and can expire.** They are Sanctum tokens: hashed at rest, listed and revocable through `$user->tokens()`, with an optional `expires_at`. The `tenant:{slug}` ability is checked against the URL, so a token minted for one workspace is refused on another even when the person is a member of both.
 - **The MCP request runs as any request of the person would.** `AuthenticateAgent` resolves the user, the guard and the workspace before any tool runs and enters the workspace through your `enteringTenant()` hook (Filament's `TenantSet` in a panel), so tenancy layers, scopes and policies see the same state as elsewhere.
+- **Every decision is an event.** Each call fires `Packstub\Agents\Events\ToolAuthorized` before the tool runs, from the chat and from MCP clients: the tool, its ability, the arguments, `allowed`, and for a refusal its message and `refusedBy` (`role` or `token`). Listen to it to log refusals or alert on them; the tool list, checked on every listing, does not fire it.
 - **Errors never leak stack traces.** Domain exceptions become tool errors with their message; unexpected exceptions are reported and the model gets a generic failure.
 - **Budgets are enforced before the provider is called.** Rate, daily and monthly limits per workspace and per user, and a prompt length cap, see [Budgets and limits](budgets-and-limits.md).
 - **Conversations are private to their participant.** The conversation store scopes them to the person, and the poll endpoint returns 404 for anyone else's.
@@ -97,7 +98,7 @@ Where it runs:
 
 A turn that had something replaced writes one `critical` log line and fires `Packstub\Agents\Events\OutputRedacted` with the kinds (`card`, `api_key`, a pattern's label, `custom`), the turn and the conversation, never the values: a secret in an answer means a tool returned it, and that is the thing to fix.
 
-What it does not cover: the question the person typed (it is theirs), the tool result the model reads inside the turn that produced it (the model needs the data to answer; what it then writes is redacted), and results returned to an MCP client, which acts as the token's owner. Redaction is the net, not the rule: keep secrets out of tool results in the first place.
+What it does not cover: the question the person typed (it is theirs), the tool result the model reads inside the turn that produced it (the model needs the data to answer; what it then writes is redacted), and results returned to an MCP client, which acts as the token's owner. Redaction is the net, not the rule: keep secrets out of tool results in the first place. To keep a field away from the model as well, change the result before it is read with [`Agents::mapToolResultsUsing()`](tools.md#changing-a-result-before-the-model-reads-it).
 
 ## Data sent to the provider
 

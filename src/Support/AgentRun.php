@@ -119,7 +119,7 @@ class AgentRun
 
         $proposals = collect($answer['tools'] ?? [])
             ->filter(fn (array $tool) => $tool['pending'])
-            ->map(fn (array $tool) => ['id' => $tool['id'], 'question' => $tool['question'], 'tool' => $tool['tool'], 'arguments' => $tool['arguments']])
+            ->map(fn (array $tool) => ['id' => $tool['id'], 'question' => $tool['question'], 'tool' => $tool['tool'], 'arguments' => $tool['arguments'], 'preview' => $tool['preview']])
             ->values();
 
         return new AgentAnswer($turn, $chat->conversation(), (string) ($answer['text'] ?? $turn?->text ?? ''), $proposals);

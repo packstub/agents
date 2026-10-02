@@ -330,6 +330,8 @@ class AgentChat
                         'tool' => (string) ($call['name'] ?? ''),
                         'question' => self::question($writeTools->get($call['name'] ?? ''), $call['name'] ?? '', $call['arguments'] ?? []),
                         'arguments' => $call['arguments'] ?? [],
+                        // What it would change, while it waits: the record as it is now next to what the call sets.
+                        'preview' => $pending->contains($call['id'] ?? null) ? ApprovableTool::preview($writeTools->get($call['name'] ?? ''), $call['arguments'] ?? []) : [],
                         'pending' => $pending->contains($call['id'] ?? null),
                         'held' => $held[$call['id'] ?? ''] ?? null,
                         'result' => $results->get($call['id'] ?? null)['result'] ?? null,

@@ -166,6 +166,9 @@ it('shows a decision on one of two proposals as held on its row until the other 
         ], 'approval_state' => ['pending' => ['c1' => 'Rename Alpha?', 'c2' => 'Rename Beta?']]],
     ]);
 
+    // While they wait, each carries what it would change: the record as it is now next to the new name.
+    expect(AgentChat::for($user, $id)->messages()->last()['tools'][1]['preview'])->toBe([['label' => 'Name', 'before' => $beta->name, 'after' => 'Beta II']]);
+
     $chat = AgentChat::for($user, $id);
     $turn = $chat->decide('c1', true);
     Queue::assertNothingPushed();

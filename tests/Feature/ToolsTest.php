@@ -1,9 +1,11 @@
 <?php
 
+use Illuminate\Support\Facades\Event;
 use Laravel\Ai\Tools\McpServerTool;
 use Laravel\Ai\Tools\Request as AiRequest;
 use Laravel\Mcp\Request;
 use Packstub\Agents\Ai\ApprovableTool;
+use Packstub\Agents\Events\ToolAuthorized;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Mcp\AgentTool;
 use Packstub\Agents\Mcp\Tools\DrawChart;
@@ -15,6 +17,7 @@ use Packstub\Agents\Tests\Fixtures\Tools\RetireWidget;
 use Packstub\Agents\Tests\Fixtures\WidgetAgent;
 use Packstub\Agents\Tests\Fixtures\WidgetResource;
 use Packstub\Agents\Tests\Fixtures\WidgetServer;
+use RuntimeException;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\postJson;
@@ -195,4 +198,87 @@ it('offers starter questions for an empty chat: generic ones with the first agen
 
     expect((new WidgetAgent)->suggestions())->toBe(['What needs attention today?', 'Show me the latest widgets.', 'What can you help me with?'])
         ->and((new WidgetAgent(pageContext: 'widgets/'.$alpha->id))->suggestions())->toBe(['What should I know about Widget Alpha?', 'What is the next step for Widget Alpha?', 'What needs attention today?']);
+});
+
+it('lets the app change a tool result before the model reads it, in the order given, on every path', function () {
+    actingAs($this->user());
+    $this->widgets();
+    Abilities::$allowed = ['widgets.view', 'widgets.manage'];
+
+    Agents::mapToolResultsUsing(fn (array $result, AgentTool $tool) => [...$result, 'seen' => [$tool->name()]]);
+    Agents::mapToolResultsUsing(function (array $result, AgentTool $tool, Request $request) {
+        $result['seen'][] = 'second:'.$request->get('limit');
+
+        return $result;
+    });
+
+    $direct = app(ListWidgets::class)->handle(new Request(['limit' => 1]));
+    expect(json_decode((string) $direct->content(), true)['seen'])->toBe(['list-widgets', 'second:1']);
+
+    WidgetServer::tool(ListWidgets::class, ['limit' => 2])->assertOk()->assertSee('second:2');
+
+    // A callback that throws fails the call as a tool error: the result it was handed never reaches the model.
+    Agents::mapToolResultsUsing(null);
+    Agents::mapToolResultsUsing(fn () => throw new RuntimeException('Masking failed.'));
+    $failed = app(ListWidgets::class)->handle(new Request([]));
+    expect($failed->isError())->toBeTrue()
+        ->and((string) $failed->content())->toBe('Masking failed.')->not->toContain('Alpha')
+        ->and(Agents::toolResultMaps())->toHaveCount(1);
+});
+
+it('fires ToolAuthorized for every call, allowed or refused by the role or the token, but not for the tool list', function () {
+    $user = $this->user();
+    actingAs($user);
+    $this->widgets();
+    Event::fake([ToolAuthorized::class]);
+    Abilities::$allowed = ['widgets.view'];
+    Abilities::$role = 'Viewer';
+
+    collect((new WidgetAgent)->tools())->each->name();
+    Event::assertNotDispatched(ToolAuthorized::class);
+
+    app(ListWidgets::class)->handle(new Request(['limit' => 1]));
+    app(RenameWidget::class)->handle(new Request(['id' => 1, 'name' => 'X']));
+
+    Event::assertDispatched(ToolAuthorized::class, fn (ToolAuthorized $e) => $e->tool instanceof ListWidgets && $e->allowed && $e->arguments === ['limit' => 1] && $e->refusedBy === null);
+    Event::assertDispatched(ToolAuthorized::class, fn (ToolAuthorized $e) => $e->tool instanceof RenameWidget && ! $e->allowed
+        && $e->ability === 'widgets.manage' && $e->refusedBy === 'role' && str_contains($e->refusal, 'Your role (Viewer)') && $e->arguments === ['id' => 1, 'name' => 'X']);
+
+    // A read-only token refuses a write the role would allow.
+    Abilities::$allowed = ['widgets.view', 'widgets.manage'];
+    $token = $user->createToken('laptop', ['read']);
+    $user->withAccessToken($token->accessToken);
+    app(RenameWidget::class)->handle(new Request(['id' => 1, 'name' => 'Y']));
+
+    Event::assertDispatched(ToolAuthorized::class, fn (ToolAuthorized $e) => ! $e->allowed && $e->refusedBy === 'token' && $e->refusal === 'This access token is read-only.');
+    expect(Widget::query()->find(1)->name)->not->toBe('Y');
+});
+
+it('previews what a proposed call would change, and leaves out a preview that throws', function () {
+    actingAs($this->user());
+    [$alpha] = $this->widgets();
+
+    expect(ApprovableTool::preview(app(RenameWidget::class), ['id' => $alpha->id, 'name' => 'Alpha II']))
+        ->toBe([['label' => 'Name', 'before' => $alpha->name, 'after' => 'Alpha II']])
+        ->and(ApprovableTool::preview(app(RetireWidget::class), ['id' => $alpha->id]))->toBe([]) // no preview of its own
+        ->and(ApprovableTool::preview(null, ['id' => 1]))->toBe([]); // no longer registered
+
+    $broken = new class extends RenameWidget
+    {
+        public function preview(array $arguments): array
+        {
+            throw new RuntimeException('The record moved.');
+        }
+    };
+    expect(ApprovableTool::preview($broken, ['id' => $alpha->id, 'name' => 'X']))->toBe([]);
+
+    // Rows without a label or without either side are dropped.
+    $loose = new class extends RenameWidget
+    {
+        public function preview(array $arguments): array
+        {
+            return [['label' => 'Name', 'after' => 'X'], ['label' => 'Nothing'], ['before' => 1, 'after' => 2], 'text'];
+        }
+    };
+    expect(ApprovableTool::preview($loose, []))->toBe([['label' => 'Name', 'after' => 'X']]);
 });

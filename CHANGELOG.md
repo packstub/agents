@@ -2,6 +2,16 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.7.0 — 2026-10-02
+
+Three hooks for what an app wants to see and control around a tool call: a say on every result before the model reads it, a preview of what a write would change, and an event for every authorization decision. Nothing changes until you use them.
+
+### Added
+
+- **Change a tool result before the model reads it** (#16). `Agents::mapToolResultsUsing(fn (array $result, AgentTool $tool, Request $request): array)` runs after every tool's `run()`, in the chat and over MCP, in the order given; a callback that throws fails the call as a tool error, so the result it was handed never leaves. `Agents::toolResultMaps()` lists them. See [Changing a result before the model reads it](https://packstub.dev/docs/agents/tools#changing-a-result-before-the-model-reads-it).
+- **A preview of what a proposed call would change** (#17). A write tool's `preview(array $arguments)` returns rows of a label with a `before` and/or an `after`, read while the proposal waits; each proposal of `AgentChat::messages()` and of `AgentAnswer::$proposals` carries them as `preview`. `ApprovableTool::preview()` reads them safely: a preview that throws is reported and left out. See [A preview of the change](https://packstub.dev/docs/agents/tools#a-preview-of-the-change).
+- **`ToolAuthorized`, fired for every call** (#18), allowed or refused, from the chat and from MCP clients, before the tool runs: the tool, its ability, the arguments, `allowed`, and for a refusal its message and `refusedBy` (`role` or `token`). The tool list does not fire it. See [What the package enforces](https://packstub.dev/docs/agents/security#what-the-package-enforces).
+
 ## 1.6.0 — 2026-10-01
 
 The assistant reaches beyond the records and gets guard rails to switch on: a knowledge base it searches and cites, the provider's web search held to an allow-list, a prompt guard in front of every question, redaction of secrets in answers and stored tool results, and a classification of every chat. The housekeeping calls become structured-output side agents, and a question that never got its answer can be retried wherever it sits. Filament Agents 1.13 shows it in a panel.

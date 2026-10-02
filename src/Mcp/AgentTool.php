@@ -10,6 +10,7 @@ use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Laravel\Sanctum\Contracts\HasAbilities;
 use Laravel\Sanctum\TransientToken;
+use Packstub\Agents\Events\ToolAuthorized;
 use Packstub\Agents\Facades\Agents;
 use ReflectionClass;
 use RuntimeException;
@@ -42,15 +43,25 @@ abstract class AgentTool extends Tool
     public function handle(Request $request): Response
     {
         if (! Agents::allows($this->ability)) {
-            return Response::error(self::refusal());
+            return $this->refused($request, self::refusal(), 'role');
         }
 
         if ($refusal = $this->tokenRefusal()) {
-            return Response::error($refusal);
+            return $this->refused($request, $refusal, 'token');
         }
 
+        ToolAuthorized::dispatch($this, $this->ability, $request->all(), true);
+
         try {
-            return Response::json($this->run($request));
+            $result = $this->run($request);
+
+            // The app's own say on what the model reads (Agents::mapToolResultsUsing()), in the order given. A callback
+            // that throws fails the call like the tool would, so the result it was given never leaves.
+            foreach (Agents::toolResultMaps() as $map) {
+                $result = $map($result, $this, $request);
+            }
+
+            return Response::json($result);
         } catch (ValidationException $e) {
             return Response::error(__('Invalid arguments: :errors', ['errors' => collect($e->errors())->flatten()->join(' ')]));
         } catch (RuntimeException|InvalidArgumentException $e) {
@@ -60,6 +71,13 @@ abstract class AgentTool extends Tool
 
             return Response::error(__('The action failed: :message', ['message' => $e->getMessage()]));
         }
+    }
+
+    protected function refused(Request $request, string $refusal, string $by): Response
+    {
+        ToolAuthorized::dispatch($this, $this->ability, $request->all(), false, $refusal, $by);
+
+        return Response::error($refusal);
     }
 
     /**
@@ -79,6 +97,20 @@ abstract class AgentTool extends Tool
     public function describe(array $arguments): ?string
     {
         return null;
+    }
+
+    /**
+     * What a proposed call would change, shown with the question while it waits for approval: rows of
+     * ['label' => 'Price', 'before' => 12, 'after' => 15], either side left out when there is none (a create has
+     * no before, a delete no after). Read while the proposal waits, so it is the record as it is now. Empty (the
+     * default) shows nothing; a preview that throws is left out — see ApprovableTool::preview().
+     *
+     * @param  array<string, mixed>  $arguments
+     * @return list<array{label: string, before?: mixed, after?: mixed}>
+     */
+    public function preview(array $arguments): array
+    {
+        return [];
     }
 
     /**
