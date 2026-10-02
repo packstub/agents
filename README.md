@@ -14,16 +14,16 @@ An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https:
 
 ## Features
 
-- **[One tool list, two front doors](#writing-tools)** — every capability is a `laravel/mcp` tool. Your agent calls it through laravel/ai's bridge; external agents call it over HTTP with a Sanctum token. Add a tool to the list and it is everywhere.
-- **[Authorization is your app's](#writing-tools)** — a tool declares the ability string that gates the action it mirrors. The agent can never do more than the signed-in person could by hand, and a token narrows that further for external agents: read-only, or just the tools they need.
-- **[Writes are proposals](#writing-tools)** — a write tool is wrapped for approval (laravel/ai approvals), so a turn pauses until the person decides; the proposal is a question in the person's words ("Confirm order RO-00016 for Acme?") from the tool's own `describe()`. Over MCP, a write token runs it directly with the person's role.
-- **[Turns that survive the request](#running-a-turn)** — every answer is produced by a queued job that records its progress, tokens, tools and how it ended in `agent_turns`; a poll endpoint reads it back. No worker? A sync driver runs the job inside the request.
-- **[A knowledge base and web search](https://packstub.dev/docs/agents/tools#knowledge-base)** — `Agents::knowledgeBase(Article::class, 'embedding')` lets the assistant answer "how do I…" from your own documents, searched by meaning and cited, for the chat and for MCP clients; the provider's web search reaches public information within an allow-list of domains.
-- **[Guard rails you switch on](https://packstub.dev/docs/agents/security#the-prompt-guard)** — a prompt guard on a small model refuses injections, jailbreaks and data exfiltration before the assistant reads them, and redaction keeps card numbers, API keys and your own patterns out of answers and stored tool results, streaming included.
-- **[A bounded bill](#budgets-and-limits)** — a per-user burst limit, answers per day and tokens per day and per month per workspace, tokens per day and per month per user, and a prompt length cap, all checked before a turn reaches the provider and overridable per workspace and per user in `agent_limits`.
-- **[Your assistant, your prompt](#the-agent)** — a scaffolded agent class with two slots to fill (who it is, what the workspace is) on top of generic working and answering rules, provider-cached instructions and a model catalog (Claude Opus 5, Claude Haiku 4.5, Claude Opus 5 · Deep) for Anthropic, OpenAI, Gemini or xAI — any other laravel/ai provider, Ollama included, runs on its smartest and cheapest models. A failover list (`AGENT_FAILOVER=gemini,openai`) keeps answering when a provider is overloaded.
-- **[Tenancy-aware](#tenancy)** — the MCP path can carry the workspace, tokens are bound to it, conversations can live in the tenant database and a workspace can bring its own provider key. Works without tenancy too.
-- **Translatable** — every string goes through `__()`, with German, Spanish, Romanian and Russian included.
+- **[One tool list, two front doors](#writing-tools)**: your own agent and any MCP client (Claude Code, Cursor) call the same tools.
+- **[Your app's authorization](#writing-tools)**: the agent never does more than the signed-in person could, and a token narrows it further.
+- **[Writes are proposals](#writing-tools)**: a write waits for the person's approval, asked as a plain question.
+- **[Turns that survive the request](#running-a-turn)**: queued, recorded and polled, with a sync driver when there is no worker.
+- **[Knowledge base and web search](https://packstub.dev/docs/agents/tools#knowledge-base)**: answers from your own documents, cited, and from public pages within an allow-list.
+- **[Guard rails you switch on](https://packstub.dev/docs/agents/security#the-prompt-guard)**: a prompt guard against injections, and redaction of secrets in answers.
+- **[A bounded bill](#budgets-and-limits)**: answer and token limits per user and per workspace, checked before the provider is called.
+- **[Your assistant, your prompt](#the-agent)**: a scaffolded agent class on Anthropic, OpenAI, Gemini or xAI, with failover.
+- **[Tenancy-aware](#tenancy)**: workspace-bound tokens, tenant databases and per-workspace keys, or no tenancy at all.
+- **Translatable**: German, Spanish, Romanian and Russian included.
 
 ## Compatibility
 
@@ -134,6 +134,8 @@ class Assistant extends Agent
     }
 }
 ```
+
+It runs on Anthropic, OpenAI, Gemini or xAI with a model catalog (Claude Opus 5, Claude Haiku 4.5, Claude Opus 5 · Deep); any other laravel/ai provider, Ollama included, runs on its smartest and cheapest models. A failover list (`AGENT_FAILOVER=gemini,openai`) keeps answering when a provider is overloaded.
 
 Read more: [The agent](https://packstub.dev/docs/agents/assistant).
 

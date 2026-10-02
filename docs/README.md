@@ -8,21 +8,18 @@ An AI agent and an MCP server for a Laravel app, built on laravel/ai and laravel
 
 In a Filament panel, [Filament Agents](https://packstub.dev/docs/filament-agents) puts a chat, the Agent access page and the operator pages on top of this package.
 
-## What you get
+## Features
 
-| Feature | What it means for you |
-| --- | --- |
-| **One tool list, two front doors** | Every capability is a `laravel/mcp` tool class with an ability. Your agent calls it through laravel/ai; external agents call it over HTTP with a Sanctum token. Add a tool to the list once and it is everywhere. |
-| **Your app's authorization** | A tool declares the same ability string that gates the action it mirrors. The agent can never do more than the signed-in person could by hand. A token narrows that further for external agents: read-only, or just the tools they need. |
-| **Writes are proposals** | Read-only tools run directly. Any other tool is wrapped for approval: the turn pauses on what would run until the person approves or rejects it, shown as a question in the person's words from the tool's own `describe()`. Over MCP, a write token runs it directly with the person's role. |
-| **Turns that survive the request** | Every answer is produced by a queued job that streams its progress into `agent_turns` and keeps the record when it ends: provider, model, tokens, tools, duration, how it ended. Stop cuts it short, follow-ups wait their turn per conversation, a poll endpoint reads the answer so far with a status line that names a missing worker. Long chats replay a token-budgeted window with a rolling summary. No worker? A sync driver runs the job inside the request. |
-| **Beyond the chat** | `AgentRun` asks as a person from a command, a job or the scheduler and returns the answer; the email channel answers a person's mail and continues the chat on a reply; the MCP server serves the app's resources and one record as MCP resources and the starter questions as prompts; four events (turn started, tool called, proposal decided, turn ended) feed an audit trail or a notification; `AgentEval` asserts in a test which tools the agent called with which arguments. |
-| **Beyond the records** | A knowledge base answers "how do I…" from your own documents: register a model with an embedding column and the `search-knowledge-base` tool searches it by meaning, for the chat and for MCP clients, and the assistant cites what it used. Web search, run by the provider, reaches public information within an allow-list of domains, kept apart from the workspace's data in the answer. |
-| **Guard rails you switch on** | A prompt guard classifies every question on a small model before the assistant reads it and refuses injections, jailbreaks and data exfiltration. Redaction replaces card numbers, social security numbers, API keys and your own patterns in answers, while they stream and as stored, and in stored tool results. Both report what they did: a log line and an event. |
-| **A bounded bill** | A per-user burst limit, answers and tokens per day and per month per workspace, tokens per day and per month per user, and a prompt length cap, checked before a turn reaches the provider. Rows in `agent_limits` override them per workspace and per user. |
-| **Your assistant, your prompt** | A scaffolded agent class with two slots (who it is, what the workspace is) on top of generic working and answering rules; the static block and the settled history are cached by the provider, the dynamic block (date, person, role, language) rides with the question. Anthropic, OpenAI, Gemini or xAI with a model catalog (Claude Opus 5, Claude Haiku 4.5, Claude Opus 5 · Deep); any other laravel/ai provider, Ollama included, on its smartest and cheapest models; a failover list keeps answering when a provider is overloaded. |
-| **Tenancy-aware** | The MCP path can carry the workspace, tokens are bound to it, conversations can live in the tenant database and a workspace can bring its own provider key. Works without tenancy too. |
-| **Translatable** | Every string goes through `__()`; German, Spanish, Romanian and Russian are included. |
+- **[One tool list, two front doors](tools.md)**: your own agent and any MCP client (Claude Code, Cursor) call the same tools.
+- **[Your app's authorization](security.md#what-the-package-enforces)**: the agent never does more than the signed-in person could, and a token narrows it further.
+- **[Writes are proposals](tools.md#read-only-versus-write)**: a write waits for the person's approval, asked as a plain question with a preview of the change.
+- **[Turns that survive the request](assistant.md#how-a-turn-runs)**: queued, recorded and polled, with a sync driver when there is no worker.
+- **[Beyond the chat](assistant.md#the-assistant-without-a-chat)**: ask from a command, a job or by email, with events for an audit trail.
+- **[Knowledge base and web search](tools.md#knowledge-base)**: answers from your own documents, cited, and from public pages within an allow-list.
+- **[Guard rails you switch on](security.md#the-prompt-guard)**: a prompt guard against injections, and redaction of secrets in answers.
+- **[A bounded bill](budgets-and-limits.md)**: answer and token limits per user and per workspace, checked before the provider is called.
+- **[Your assistant, your prompt](assistant.md#the-agent-class)**: a scaffolded agent class on Anthropic, OpenAI, Gemini or xAI, with failover.
+- **[Tenancy-aware](tenancy.md)**: workspace-bound tokens, tenant databases and per-workspace keys, or no tenancy at all.
 
 ## Guides
 

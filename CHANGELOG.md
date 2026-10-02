@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+### Changed
+
+- **Docs**: a shorter Features list in the README and on the docs index, one line per area; the README's agent section names the providers and the failover list.
+
 ## 1.7.0 — 2026-10-02
 
 Three hooks for what an app wants to see and control around a tool call: a say on every result before the model reads it, a preview of what a write would change, and an event for every authorization decision. Nothing changes until you use them.
