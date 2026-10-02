@@ -9,6 +9,7 @@ use Laravel\Ai\Contracts\Approvable;
 use Laravel\Ai\Tools\McpServerTool;
 use Laravel\Ai\Tools\Request;
 use Packstub\Agents\Mcp\AgentTool;
+use Throwable;
 
 /**
  * A write tool as the chat sees it: the same laravel/mcp tool, but the agent
@@ -40,6 +41,32 @@ class ApprovableTool extends McpServerTool implements Approvable
         }
 
         return self::phrase(method_exists($tool, 'title') ? $tool->title() : Str::headline(class_basename($tool)), $arguments);
+    }
+
+    /**
+     * What the call would change (AgentTool::preview()), each row with a label and a before and/or an after; empty
+     * for a tool without a preview, one that is no longer registered, and one whose preview throws (reported, so a
+     * broken preview never stands between the person and the decision).
+     *
+     * @param  array<string, mixed>  $arguments
+     * @return list<array{label: string, before?: mixed, after?: mixed}>
+     */
+    public static function preview(?object $tool, array $arguments): array
+    {
+        if (! $tool instanceof AgentTool) {
+            return [];
+        }
+
+        try {
+            return array_values(array_filter(
+                $tool->preview($arguments),
+                fn ($row) => is_array($row) && is_string($row['label'] ?? null) && (array_key_exists('before', $row) || array_key_exists('after', $row)),
+            ));
+        } catch (Throwable $e) {
+            report($e);
+
+            return [];
+        }
     }
 
     /**

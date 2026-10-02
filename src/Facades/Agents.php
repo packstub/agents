@@ -30,6 +30,8 @@ use Packstub\Agents\AgentsManager;
  * @method static \Packstub\Agents\Support\KnowledgeBase|null knowledge()
  * @method static void redactUsing(?\Closure $callback)
  * @method static \Closure|null redactor()
+ * @method static void mapToolResultsUsing(?\Closure $callback)
+ * @method static list<\Closure> toolResultMaps()
  * @method static void useResources(array $resources)
  * @method static list<class-string<\Packstub\Agents\Contracts\AgentResource>> resourceClasses()
  * @method static list<class-string<\Packstub\Agents\Contracts\AgentResource>> registeredResources()

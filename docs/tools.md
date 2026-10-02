@@ -86,6 +86,24 @@ public function describe(array $arguments): ?string
 
 Keep it to one sentence about the effect, in the person's words rather than the tool's: the arguments stay visible under the question for whoever wants the exact call.
 
+### A preview of the change
+
+A question says what the call will do; a preview shows what it changes. Give a write tool a `preview()` and the proposal carries rows of a label with the value now and the value after, read while the proposal waits, so "before" is the record as it is at that moment:
+
+```php
+public function preview(array $arguments): array
+{
+    $order = Order::query()->where('number', $arguments['number'] ?? null)->first();
+
+    return $order ? [
+        ['label' => 'Status', 'before' => $order->status->label(), 'after' => 'Confirmed'],
+        ['label' => 'Ship by', 'before' => $order->ship_by?->toDateString(), 'after' => $arguments['ship_by'] ?? null],
+    ] : [];
+}
+```
+
+Leave out `before` for something new and `after` for something removed. Each proposal of `AgentChat::messages()` and of `AgentAnswer::$proposals` has the rows as `preview`, and Filament Agents shows them under the question. A preview that throws is reported and left out, so it never stands between the person and the decision; `ApprovableTool::preview($tool, $arguments)` gives the same rows for a surface of your own.
+
 #### Decisions in words, and two proposals at once
 
 A turn that arrives as a question while a proposal waits for a decision is read first: a short reply that says yes ("Yes, go ahead.", "ok", "confirm it", and the same in German, Spanish, Romanian and Russian; `AgentTurns::decisionInText()`) approves every pending proposal and one that says no rejects them, the reply recorded like any question and the turn run as that decision. Anything else is a question of its own: the pending proposals are declined with `AgentTurns::supersededResult()` as their result, so the history never carries a call without a result (laravel/ai cannot continue over one, and a later decision could no longer be matched), and the new question is answered.
@@ -105,6 +123,30 @@ Exceptions thrown from `run()` are handed back to the model as tool errors, neve
 So a domain service that throws `RuntimeException('Order RO-00012 is already shipped.')` produces a sentence the assistant can relay and act on.
 
 When the person's role does not allow the tool, the model gets "Your role (Viewer) is not allowed to do this." (or "You are not allowed to do this." without a role label), and the generic rules tell it to say who can do it instead of retrying.
+
+## Changing a result before the model reads it
+
+`Agents::mapToolResultsUsing()` gives your app the last word on what any tool returns, before the model reads it, in the chat and over MCP alike. Register it in a service provider, as often as you need; the callbacks run in the order given, each on what the one before returned:
+
+```php
+use Laravel\Mcp\Request;
+use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Mcp\AgentTool;
+
+Agents::mapToolResultsUsing(function (array $result, AgentTool $tool, Request $request): array {
+    if (! auth()->user()->can('customers.contact')) {
+        array_walk_recursive($result, function (&$value, $key) {
+            if (in_array($key, ['email', 'phone'], true)) {
+                $value = '[hidden]';
+            }
+        });
+    }
+
+    return $result;
+});
+```
+
+A callback that throws fails the call the way a tool would ([Errors](#errors)), so the result it was handed never reaches the model. `Agents::mapToolResultsUsing(null)` forgets every callback given so far. Use it for what holds across tools (a field some roles never see, a record of what was returned); what belongs to one tool stays in its `run()`.
 
 ## The server class
 

@@ -14,7 +14,7 @@ use Packstub\Agents\Models\AgentTurn;
 final class AgentAnswer
 {
     /**
-     * @param  Collection<int, array<string, mixed>>  $proposals  the pending write calls (question, tool, arguments)
+     * @param  Collection<int, array<string, mixed>>  $proposals  the pending write calls (id, question, tool, arguments, preview)
      */
     public function __construct(
         public readonly ?AgentTurn $turn,

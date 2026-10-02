@@ -61,6 +61,9 @@ class AgentsManager
 
     protected ?KnowledgeBase $knowledgeBase = null;
 
+    /** @var list<Closure> */
+    protected array $toolResultMaps = [];
+
     protected ?Closure $tenantResolver = null;
 
     protected ?Closure $tenantEnter = null;
@@ -289,6 +292,22 @@ class AgentsManager
     public function redactor(): ?Closure
     {
         return $this->redactor;
+    }
+
+    /**
+     * Change what a tool returns before the model reads it, for the chat and MCP clients alike:
+     * fn (array $result, AgentTool $tool, Laravel\Mcp\Request $request): array, run after the tool's run(), in the
+     * order given; null forgets every one given before. A callback that throws fails the call as a tool error.
+     */
+    public function mapToolResultsUsing(?Closure $callback): void
+    {
+        $this->toolResultMaps = $callback ? [...$this->toolResultMaps, $callback] : [];
+    }
+
+    /** @return list<Closure> */
+    public function toolResultMaps(): array
+    {
+        return $this->toolResultMaps;
     }
 
     /** @param  list<class-string<AgentResource>>  $resources */

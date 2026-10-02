@@ -28,6 +28,13 @@ class RenameWidget extends AgentTool
         return "Rename widget #{$arguments['id']} to {$arguments['name']}?";
     }
 
+    public function preview(array $arguments): array
+    {
+        $widget = Widget::query()->find((int) ($arguments['id'] ?? 0));
+
+        return $widget ? [['label' => 'Name', 'before' => $widget->name, 'after' => $arguments['name'] ?? null]] : [];
+    }
+
     public function schema(JsonSchema $schema): array
     {
         return [
