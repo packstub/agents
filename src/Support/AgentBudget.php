@@ -3,16 +3,18 @@
 namespace Packstub\Agents\Support;
 
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\RateLimiter;
-use Laravel\Ai\Models\ConversationMessage;
 use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Models\AgentTurn;
 
 /**
  * Keeps the bill bounded: a burst limit per user, a daily number of turns per
  * workspace, a daily + monthly token budget per workspace and per user, all
- * counted from what laravel/ai already stores with every assistant message.
- * Checked before a turn reaches the provider; the provider's own spend limit
- * stays the backstop.
+ * counted from the record every turn leaves on agent_turns — which carries
+ * the workspace, so on a shared database one workspace's turns never count
+ * against another's. Checked before a turn reaches the provider; the
+ * provider's own spend limit stays the backstop.
  */
 class AgentBudget
 {
@@ -62,14 +64,15 @@ class AgentBudget
         RateLimiter::hit(self::minuteKey(), 60);
     }
 
-    /** The answers the model wrote today; a message the app posted as the assistant is not one. */
+    /**
+     * The turns the provider answered today in this workspace (done, or stopped by the person while it answered);
+     * a message the app posted as the assistant leaves a done turn too, ended "posted", and is not one.
+     */
     public static function turnsToday(): int
     {
-        return ConversationMessage::query()
-            ->where('role', 'assistant')
-            ->where('created_at', '>=', now()->startOfDay())
-            ->pluck('meta')
-            ->reject(fn ($meta) => AgentConversationStore::wasPosted($meta))
+        return self::endedSince(now()->startOfDay())
+            ->whereIn('status', [AgentTurn::DONE, AgentTurn::STOPPED])
+            ->where(fn ($q) => $q->whereNull('finish_reason')->orWhere('finish_reason', '!=', AgentTurn::POSTED))
             ->count();
     }
 
@@ -83,15 +86,29 @@ class AgentBudget
         return self::tokensSince(now()->startOfMonth(), $userId);
     }
 
-    /** All token kinds the provider reported, for the workspace or for one of its users. */
+    /** All token kinds the provider reported, for the workspace or for one of its users; a turn that failed half-way counts what it used. */
     protected static function tokensSince(CarbonInterface $since, int|string|null $userId = null): int
     {
-        return (int) ConversationMessage::query()
-            ->where('role', 'assistant')
+        return (int) self::endedSince($since)
             ->when($userId, fn ($q) => $q->where('participant_id', $userId))
-            ->where('created_at', '>=', $since)
             ->pluck('usage')
             ->sum(fn ($usage) => AgentUsage::total(is_array($usage) ? $usage : null));
+    }
+
+    /**
+     * The turns that ended since the moment, in the current workspace: the one
+     * entered or resolved, else the rows without one — every row, in an app
+     * without workspaces.
+     *
+     * @return Builder<AgentTurn>
+     */
+    protected static function endedSince(CarbonInterface $since): Builder
+    {
+        $tenant = Agents::tenant()?->getKey();
+
+        return AgentTurn::query()
+            ->when($tenant !== null, fn ($q) => $q->where('tenant', (string) $tenant), fn ($q) => $q->whereNull('tenant'))
+            ->where('finished_at', '>=', $since);
     }
 
     /**

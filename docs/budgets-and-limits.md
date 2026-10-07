@@ -58,7 +58,7 @@ AgentBudget::tokensThisMonth($userId);
 AgentBudget::hit();                // count a turn against the per-user burst limit (the job does this)
 ```
 
-`AgentBudget::summary()` is what a workspace settings page shows next to "your AI usage this month". Every counter comes from `agent_conversation_messages`, so no extra bookkeeping is needed.
+`AgentBudget::summary()` is what a workspace settings page shows next to "your AI usage this month". Every counter comes from `agent_turns`, the record each turn leaves when it ends (see below): the turns that ended in the current workspace, so on a shared database one workspace's turns never count against another's, and a person's own tokens are theirs in each workspace. Answers per day are the turns the provider answered (`done`, or `stopped` by the person while it answered); tokens are what every ended turn used, a turn that failed half-way included. Outside every workspace, and in an app without workspaces, the turns without one count. No extra bookkeeping is needed, but keep `chat.keep_turns_days` at 31 or more (it is 90 by default): the monthly counters only see the turns that are still there.
 
 A guard rail of your own (a plan without the assistant, a frozen workspace) is a [middleware](assistant.md#middleware) that throws `TurnRefused` with the message the person should read.
 

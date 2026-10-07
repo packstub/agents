@@ -7,6 +7,8 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Packstub\Agents\Contracts\AgentContext;
+use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
+use Packstub\Agents\Exceptions\WorkspaceNotFound;
 use Packstub\Agents\Facades\Agents;
 
 /**
@@ -17,7 +19,9 @@ use Packstub\Agents\Facades\Agents;
  * MCP request can find it again by key or by slug; entering one runs the
  * Agents::enteringTenant() hook, and what it returned runs on leaving. Membership goes through
  * the user's own canAccessTenant() when it has one; without it every
- * signed-in person may enter every workspace.
+ * signed-in person may enter every workspace. A workspace with no person at
+ * all is refused too, unless the caller passes `system => true` (a scheduled
+ * job acting for the app, not for anyone).
  */
 class LaravelContext implements AgentContext
 {
@@ -85,6 +89,28 @@ class LaravelContext implements AgentContext
         $key = $context['tenant'] ?? null;
         $tenant = $key !== null ? $this->findTenant($key) : null;
         $leaveTenant = null;
+
+        // Whoever acts inside the workspace: the person given, else the one already signed in on the guard.
+        // Nobody at all is not a membership we checked: refused, unless the app says the system itself acts.
+        $actor = $user ?? $previousUser;
+
+        $refused = match (true) {
+            $key !== null && ! $tenant && $this->tenantModel() !== null => WorkspaceNotFound::make(),
+            $tenant && $actor && ! $this->canAccessTenant($actor, $tenant) => WorkspaceAccessDenied::make(),
+            $tenant && ! $actor && ! ($context['system'] ?? false) => WorkspaceAccessDenied::make(),
+            default => null,
+        };
+
+        if ($refused) {
+            // Fail closed before anything is entered: undo what was set so far and refuse.
+            if ($userChanged) {
+                $previousUser ? $guard->setUser($previousUser) : $guard->forgetUser();
+            }
+
+            Auth::shouldUse($previousGuard);
+
+            throw $refused;
+        }
 
         if ($tenant) {
             $this->isEntered = true;

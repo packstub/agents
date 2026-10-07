@@ -53,7 +53,7 @@
 | `chat.attachments.temporary_urls` | `false` | `AGENT_ATTACHMENTS_TEMPORARY_URLS` | ask the disk for signed URLs when a chat shows a file (S3) |
 | `chat.path` | `agents` | | where the poll, stream and email endpoints live: `GET {path}/chat/{conversation}/turn`, `GET …/stream`, `POST {path}/email`, see [Routes](installation.md#routes) |
 | `chat.middleware` | `['web', 'auth']` | | the middleware of that endpoint; the Filament plugin registers its own on the panel's routes instead |
-| `chat.keep_turns_days` | `90` | `AGENT_KEEP_TURNS_DAYS` | how long ended turns (the per-turn record) are kept; `null` keeps them; pruned by `model:prune --model=Packstub\Agents\Models\AgentTurn` |
+| `chat.keep_turns_days` | `90` | `AGENT_KEEP_TURNS_DAYS` | how long ended turns (the per-turn record, which the daily and monthly budget counters read: keep it at 31 or more) are kept; `null` keeps them; pruned by `model:prune --model=Packstub\Agents\Models\AgentTurn` |
 | `pricing.currency` | `USD` | `AGENT_PRICING_CURRENCY` | the currency of the prices below |
 | `pricing.models` | `[]` | | prices per million tokens by model name (`in`, `out`, `cache_read`, `cache_write`); see [Cost in money](budgets-and-limits.md#cost-in-money) |
 | `email.enabled` | `false` | `AGENT_EMAIL` | the assistant by email, see [The assistant by email](assistant.md#the-assistant-by-email) |

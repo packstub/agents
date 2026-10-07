@@ -25,6 +25,7 @@ use Packstub\Agents\Events\ProposalDecided;
 use Packstub\Agents\Events\ToolCalled;
 use Packstub\Agents\Events\TurnStarted;
 use Packstub\Agents\Exceptions\TurnRefused;
+use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentAttachments;
@@ -66,7 +67,13 @@ class RunAgentTurn implements ShouldQueue
 
     public function handle(AgentTurns $turns): void
     {
-        $leave = AgentRuntime::enter($this->runtime);
+        try {
+            $leave = AgentRuntime::enter($this->runtime);
+        } catch (WorkspaceAccessDenied $denied) {
+            $this->refuse($turns, $denied);
+
+            return;
+        }
 
         try {
             $turn = AgentTurn::query()->find($this->turnId);
@@ -85,10 +92,44 @@ class RunAgentTurn implements ShouldQueue
         }
     }
 
+    /**
+     * The context refused the person (membership revoked between the request and the worker, a panel that no longer
+     * admits them) or the workspace is gone (WorkspaceNotFound): the turn ends failed with that line, without entering
+     * the workspace or signing them in. The record is written as nobody, outside any workspace — the next turn's
+     * person is read by id — so a refusal that does not depend on the workspace cannot repeat here; and should the
+     * context still refuse, the row is marked failed all the same.
+     */
+    protected function refuse(AgentTurns $turns, WorkspaceAccessDenied $denied): void
+    {
+        try {
+            $leave = AgentRuntime::enter(['tenant' => null, 'user' => null] + $this->runtime);
+        } catch (Throwable $e) {
+            report($e);
+            $leave = fn () => null;
+        }
+
+        try {
+            $turn = AgentTurn::query()->find($this->turnId);
+
+            if ($turn && $turn->isOpen() && ($turn->status !== AgentTurn::PENDING || $turns->claim($turn))) {
+                $turns->finish($turn, AgentTurn::FAILED, $denied->getMessage());
+                $turns->startNext($turn->conversation_id);
+            }
+        } finally {
+            $leave();
+        }
+    }
+
     /** The worker gave up on the job (timeout, lost process): the question keeps its Retry. */
     public function failed(?Throwable $exception): void
     {
-        $leave = AgentRuntime::enter($this->runtime);
+        try {
+            $leave = AgentRuntime::enter($this->runtime);
+        } catch (WorkspaceAccessDenied $denied) {
+            $this->refuse(app(AgentTurns::class), $denied);
+
+            return;
+        }
 
         try {
             $turn = AgentTurn::query()->find($this->turnId);

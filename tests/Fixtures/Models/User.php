@@ -14,9 +14,12 @@ class User extends Authenticatable
 
     protected $casts = ['is_admin' => 'bool'];
 
-    /** A workspace is the team the person owns (what the context asks before entering one). */
+    /**
+     * A workspace is the team the person owns (what the context asks before entering one, and again on every tool
+     * call). Read from the table as it is now, the way a pivot query would, so a change of owner mid-turn shows.
+     */
     public function canAccessTenant(Model $tenant): bool
     {
-        return $tenant instanceof Team && (int) $tenant->owner_id === (int) $this->getKey();
+        return $tenant instanceof Team && Team::query()->whereKey($tenant->getKey())->where('owner_id', $this->getKey())->exists();
     }
 }
