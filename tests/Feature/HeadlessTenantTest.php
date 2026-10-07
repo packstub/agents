@@ -2,12 +2,18 @@
 
 use Closure;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Laravel\Ai\Embeddings;
 use Laravel\Ai\PendingStep;
+use Laravel\Ai\Responses\Data\ToolCall;
+use Laravel\Mcp\Request;
 use Packstub\Agents\Channels\Email\EmailChannel;
 use Packstub\Agents\Channels\Email\InboundEmail;
+use Packstub\Agents\Events\ToolAuthorized;
 use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Exceptions\WorkspaceNotFound;
 use Packstub\Agents\Facades\Agents;
@@ -15,6 +21,7 @@ use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Models\AgentLimit;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentBudget;
+use Packstub\Agents\Support\AgentChat;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentLimits;
 use Packstub\Agents\Support\AgentModels;
@@ -264,6 +271,122 @@ it('refuses to enter a workspace with nobody acting, unless the caller says the 
 
     artisan('packstub-agents:embed', ['--tenant' => 'acme'])->expectsOutputToContain('Embedded 1 document.')->assertSuccessful();
     expect($entered)->toBe(['acme', 'left', 'acme', 'left'])->and(Agents::tenant())->toBeNull();
+});
+
+it('asks membership again on every tool call, so a turn under way stops running tools once the person was removed', function () {
+    $owner = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $other = $this->user();
+    Event::fake([ToolAuthorized::class]);
+
+    // Directly: a member's call runs, the same call after the removal is refused with the line, before run().
+    $leave = AgentRuntime::enter(['tenant' => $acme->getKey(), 'user' => $owner->getKey()]);
+    $whoAmI = app(WhoAmI::class);
+    expect(json_decode((string) $whoAmI->handle(new Request([]))->content(), true)['tenant'])->toBe('acme');
+
+    $acme->update(['owner_id' => $other->getKey()]);
+    $refused = $whoAmI->handle(new Request([]));
+    expect($refused->isError())->toBeTrue()
+        ->and((string) $refused->content())->toBe('You are not a member of this workspace.');
+    Event::assertDispatched(ToolAuthorized::class, fn (ToolAuthorized $e) => $e->tool instanceof WhoAmI && $e->allowed);
+    Event::assertDispatched(ToolAuthorized::class, fn (ToolAuthorized $e) => $e->tool instanceof WhoAmI && ! $e->allowed
+        && $e->refusedBy === 'workspace' && $e->refusal === 'You are not a member of this workspace.');
+    $leave();
+    $acme->update(['owner_id' => $owner->getKey()]);
+
+    // In a turn: the first call runs, the person is removed between the steps, the second call is refused.
+    Agents::tenantUsing(fn () => $acme);
+    actingAs($owner);
+    Agents::useMiddleware([function (PendingStep $step, Closure $next) use ($acme, $other) {
+        if ($step->number === 1) {
+            $acme->update(['owner_id' => $other->getKey()]);
+        }
+
+        return $next($step);
+    }]);
+    WidgetAgent::fake([new ToolCall('c1', 'who-am-i', []), new ToolCall('c2', 'who-am-i', []), 'Done.']);
+
+    $chat = AgentChat::for($owner);
+    $turn = $chat->send('Who am I?');
+    $messages = AgentChat::for($owner, $chat->conversation())->messages();
+    $tools = $messages[1]['tools'];
+
+    expect($turn->status)->toBe(AgentTurn::DONE, (string) $turn->error)
+        ->and($tools)->toHaveCount(2)
+        ->and($tools[0])->toMatchArray(['tool' => 'who-am-i'])
+        ->and(json_decode($tools[0]['result'], true)['tenant'])->toBe('acme')
+        ->and($tools[1])->toMatchArray(['tool' => 'who-am-i'])
+        ->and($tools[1]['result'])->toContain('You are not a member of this workspace.')
+        ->and($tools[1]['result'])->not->toContain('acme');
+});
+
+it('asks nothing about membership without a workspace', function () {
+    $owner = $this->user();
+    actingAs($owner);
+    $queries = 0;
+    DB::listen(function () use (&$queries) {
+        $queries++;
+    });
+
+    expect(Agents::tenant())->toBeNull()
+        ->and(WhoAmI::membershipRefusal())->toBeNull()
+        ->and($queries)->toBe(0);
+
+    $leave = AgentRuntime::enter(['tenant' => null, 'user' => $owner->getKey()]);
+    expect(json_decode((string) app(WhoAmI::class)->handle(new Request([]))->content(), true))->toMatchArray(['user' => $owner->id, 'tenant' => null]);
+    $leave();
+});
+
+it('counts the daily and monthly budgets per workspace on a shared database, from the turns each one ended', function () {
+    $owner = $this->user();
+    $other = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $globex = $this->team($owner, 'globex');
+    actingAs($owner);
+    $current = $acme;
+    Agents::tenantUsing(function () use (&$current) {
+        return $current;
+    });
+    $ended = function (?Team $team, object $user, string $status = AgentTurn::DONE, int $tokens = 100, ?string $reason = null, $at = null) {
+        AgentTurn::query()->create([
+            'id' => (string) Str::uuid7(), 'conversation_id' => (string) Str::uuid7(), 'participant_type' => $user::class, 'participant_id' => $user->id,
+            'status' => $status, 'input' => ['prompt' => 'Hi'], 'tenant' => $team ? (string) $team->id : null, 'usage' => ['input_tokens' => $tokens, 'output_tokens' => 0],
+            'finish_reason' => $reason, 'finished_at' => $at ?? now(),
+        ]);
+    };
+
+    // Acme used two answers (one stopped half-way) and had a turn refused; Globex nothing.
+    $ended($acme, $owner);
+    $ended($acme, $other, AgentTurn::STOPPED, 50);
+    $ended($acme, $owner, AgentTurn::FAILED, 0, 'refused');
+    AgentLimit::query()->create(['scope' => 'global', 'turns_per_day' => 2, 'tokens_per_month' => 1000, 'user_tokens_per_day' => 120]);
+    AgentLimits::flush();
+
+    expect(AgentBudget::turnsToday())->toBe(2)
+        ->and(AgentBudget::tokensThisMonth())->toBe(150)
+        ->and(AgentBudget::tokensToday($owner->id))->toBe(100)
+        ->and(AgentBudget::refusal('Hi'))->toBe(__('This workspace reached today\'s limit of :n answers. It resets at midnight.', ['n' => 2]))
+        ->and(AgentBudget::summary()['turns_today'])->toBe(2);
+
+    // Globex is untouched by Acme's turns, and the owner's own tokens there start from zero.
+    $current = $globex;
+    expect(AgentBudget::turnsToday())->toBe(0)
+        ->and(AgentBudget::tokensThisMonth())->toBe(0)
+        ->and(AgentBudget::tokensToday($owner->id))->toBe(0)
+        ->and(AgentBudget::refusal('Hi'))->toBeNull();
+
+    // A turn in Globex counts against the owner there only: 100 in Acme and 30 in Globex both stay under the 120 per workspace.
+    $ended($globex, $owner, AgentTurn::DONE, 30);
+    expect(AgentBudget::tokensToday($owner->id))->toBe(30)->and(AgentBudget::refusal('Hi'))->toBeNull();
+    $current = $acme;
+    expect(AgentBudget::tokensToday($owner->id))->toBe(100);
+
+    // Outside every workspace only the turns without one count, and a turn that ended before today is not today's.
+    $current = null;
+    expect(AgentBudget::turnsToday())->toBe(0)->and(AgentBudget::tokensThisMonth())->toBe(0);
+    $ended(null, $owner, AgentTurn::DONE, 7, at: now()->startOfDay()->subSecond());
+    $ended(null, $owner, AgentTurn::DONE, 9);
+    expect(AgentBudget::turnsToday())->toBe(1)->and(AgentBudget::tokensToday())->toBe(9);
 });
 
 it('refuses a workspace key that matches nothing instead of running without a workspace, on every path', function () {
