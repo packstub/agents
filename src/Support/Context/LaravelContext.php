@@ -151,7 +151,7 @@ class LaravelContext implements AgentContext
     {
         $model = $this->tenantModel();
 
-        return $model ? $model::query()->find($key) : null;
+        return $model && self::fitsKey(new $model, $key) ? $model::query()->find($key) : null;
     }
 
     public function findTenantBySlug(string $slug): ?Model
@@ -162,7 +162,17 @@ class LaravelContext implements AgentContext
             return null;
         }
 
-        return $model::query()->where(Agents::tenantSlugAttribute() ?? (new $model)->getKeyName(), $slug)->first();
+        if (($attribute = Agents::tenantSlugAttribute()) === null && ! self::fitsKey(new $model, $slug)) {
+            return null;
+        }
+
+        return $model::query()->where($attribute ?? (new $model)->getKeyName(), $slug)->first();
+    }
+
+    /** Whether the key can be the model's: Postgres refuses "acme" for an integer key where the others match nothing. */
+    public static function fitsKey(Model $model, int|string $key): bool
+    {
+        return $model->getKeyType() !== 'int' || is_int($key) || ctype_digit($key);
     }
 
     public function canAccessTenant(Authenticatable $user, Model $tenant): bool
