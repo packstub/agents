@@ -2,9 +2,12 @@
 
 namespace Packstub\Agents\Support\Decisions;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Laravel\Ai\Ai;
 use Packstub\Agents\Ai\Side\DecisionAgent;
 use Packstub\Agents\Contracts\DecisionClassifier;
+use Packstub\Agents\Facades\Agents;
 use RuntimeException;
 
 /**
@@ -12,6 +15,10 @@ use RuntimeException;
  * proposal over the proposals and the reply, answered with a confidence and no reason. Config
  * `decision_classifier.jev`: the key (TYPESAFE_API_KEY), the base URL, the model and the timeout. The reply and the
  * proposal questions are sent to TypeSafe.
+ *
+ * Without a key it decides nothing and reports the missing key once a day, not on every reply. With the assistant
+ * faked in a test it sends nothing unless the HTTP client is faked too, so a key in the app's .env never reaches
+ * TypeSafe from its test suite.
  */
 class JevDecisionClassifier implements DecisionClassifier
 {
@@ -20,7 +27,15 @@ class JevDecisionClassifier implements DecisionClassifier
         $config = (array) config('packstub-agents.decision_classifier.jev', []);
 
         if (blank($config['key'] ?? null)) {
-            throw new RuntimeException('The Jev decision classifier needs an API key: set TYPESAFE_API_KEY.');
+            if (Cache::add('packstub-agents:jev-missing-key', true, now()->addDay())) {
+                report(new RuntimeException('The Jev decision classifier needs an API key: set TYPESAFE_API_KEY.'));
+            }
+
+            return ['decisions' => [], 'reason' => null];
+        }
+
+        if (Ai::hasFakeGatewayFor(Agents::agentClass()) && ! self::httpFaked()) {
+            return ['decisions' => [], 'reason' => null];
         }
 
         // Questions are keyed p1, p2…, not by call id: an id that looks like a list index would turn the map into a list.
@@ -68,5 +83,13 @@ class JevDecisionClassifier implements DecisionClassifier
         }
 
         return ['decisions' => $decisions, 'reason' => null];
+    }
+
+    /** Whether Http::fake() is on: the factory keeps it in a protected flag with no getter. */
+    protected static function httpFaked(): bool
+    {
+        $factory = Http::getFacadeRoot();
+
+        return (fn () => $this->recording ?? false)->call($factory) === true;
     }
 }

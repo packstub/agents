@@ -1,6 +1,9 @@
 <?php
 
+use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -220,6 +223,14 @@ it('reads a typed reply with Jev, one choice question per proposal, and makes it
         'packstub-agents.decision_classifier.jev.key' => 'ts-test',
     ]);
 
+    // With the assistant faked and the HTTP client not, a key in the app's .env sends nothing: the reply is a question.
+    $sent = 0;
+    Event::listen(RequestSending::class, function () use (&$sent) {
+        $sent++;
+    });
+    expect(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull()
+        ->and($sent)->toBe(0);
+
     $answer = fn (string $choice, float $confidence) => ['type' => 'choice', 'choice' => $choice, 'probabilities' => [$choice => $confidence], 'confidence' => $confidence];
     Http::fake(['api.typesafe.ai/v1/systemone' => Http::sequence()
         ->push(['model' => 'jev-1.13.0', 'answers' => ['p1' => $answer('approve', 0.94), 'p2' => $answer('reject', 0.9)], 'usage' => ['input_tokens' => 300, 'output_tokens' => 20]])
@@ -250,10 +261,14 @@ it('reads a typed reply with Jev, one choice question per proposal, and makes it
         ->and(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull()
         ->and(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull();
 
-    // Without a key nothing is sent and the reply is a question.
+    // Without a key nothing is sent, the reply is a question, and the missing key is reported once, not per reply.
+    Exceptions::fake();
     config(['packstub-agents.decision_classifier.jev.key' => null]);
-    expect(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull();
+    expect(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull()
+        ->and(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull();
     Http::assertSentCount(4);
+    Exceptions::assertReportedCount(1);
+    Exceptions::assertReported(fn (RuntimeException $e) => str_contains($e->getMessage(), 'TYPESAFE_API_KEY'));
 });
 
 class FakeDecisionClassifier implements DecisionClassifier
