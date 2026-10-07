@@ -3,10 +3,12 @@
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Laravel\Ai\PendingStep;
 use Packstub\Agents\Channels\Email\EmailChannel;
 use Packstub\Agents\Channels\Email\InboundEmail;
 use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
+use Packstub\Agents\Exceptions\WorkspaceNotFound;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Models\AgentLimit;
@@ -209,5 +211,116 @@ it('refuses to enter a workspace the person is not a member of, on every path', 
         ->and($turn->fresh()->error)->toBe('You are not a member of this workspace.')
         ->and($entered)->toBe(['acme', 'acme'])
         ->and($ran)->toBe(1)
+        ->and(auth()->user())->toBeNull();
+});
+
+it('counts the daily and monthly budgets per workspace on a shared database, from the turns each one ended', function () {
+    $owner = $this->user();
+    $other = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $globex = $this->team($owner, 'globex');
+    actingAs($owner);
+    $current = $acme;
+    Agents::tenantUsing(function () use (&$current) {
+        return $current;
+    });
+    $ended = function (?Team $team, object $user, string $status = AgentTurn::DONE, int $tokens = 100, ?string $reason = null, $at = null) {
+        AgentTurn::query()->create([
+            'id' => (string) Str::uuid7(), 'conversation_id' => (string) Str::uuid7(), 'participant_type' => $user::class, 'participant_id' => $user->id,
+            'status' => $status, 'input' => ['prompt' => 'Hi'], 'tenant' => $team ? (string) $team->id : null, 'usage' => ['input_tokens' => $tokens, 'output_tokens' => 0],
+            'finish_reason' => $reason, 'finished_at' => $at ?? now(),
+        ]);
+    };
+
+    // Acme used two answers (one stopped half-way) and had a turn refused; Globex nothing.
+    $ended($acme, $owner);
+    $ended($acme, $other, AgentTurn::STOPPED, 50);
+    $ended($acme, $owner, AgentTurn::FAILED, 0, 'refused');
+    AgentLimit::query()->create(['scope' => 'global', 'turns_per_day' => 2, 'tokens_per_month' => 1000, 'user_tokens_per_day' => 120]);
+    AgentLimits::flush();
+
+    expect(AgentBudget::turnsToday())->toBe(2)
+        ->and(AgentBudget::tokensThisMonth())->toBe(150)
+        ->and(AgentBudget::tokensToday($owner->id))->toBe(100)
+        ->and(AgentBudget::refusal('Hi'))->toBe(__('This workspace reached today\'s limit of :n answers. It resets at midnight.', ['n' => 2]))
+        ->and(AgentBudget::summary()['turns_today'])->toBe(2);
+
+    // Globex is untouched by Acme's turns, and the owner's own tokens there start from zero.
+    $current = $globex;
+    expect(AgentBudget::turnsToday())->toBe(0)
+        ->and(AgentBudget::tokensThisMonth())->toBe(0)
+        ->and(AgentBudget::tokensToday($owner->id))->toBe(0)
+        ->and(AgentBudget::refusal('Hi'))->toBeNull();
+
+    // A turn in Globex counts against the owner there only: 100 in Acme and 30 in Globex both stay under the 120 per workspace.
+    $ended($globex, $owner, AgentTurn::DONE, 30);
+    expect(AgentBudget::tokensToday($owner->id))->toBe(30)->and(AgentBudget::refusal('Hi'))->toBeNull();
+    $current = $acme;
+    expect(AgentBudget::tokensToday($owner->id))->toBe(100);
+
+    // Outside every workspace only the turns without one count, and a turn that ended before today is not today's.
+    $current = null;
+    expect(AgentBudget::turnsToday())->toBe(0)->and(AgentBudget::tokensThisMonth())->toBe(0);
+    $ended(null, $owner, AgentTurn::DONE, 7, at: now()->startOfDay()->subSecond());
+    $ended(null, $owner, AgentTurn::DONE, 9);
+    expect(AgentBudget::turnsToday())->toBe(1)->and(AgentBudget::tokensToday())->toBe(9);
+});
+
+it('refuses a workspace key that matches nothing instead of running without a workspace, on every path', function () {
+    Mail::fake();
+    config()->set('packstub-agents.email.enabled', true);
+    config()->set('packstub-agents.email.secret', 'hook-secret');
+    $owner = $this->user(['email' => 'ada@example.com']);
+    $acme = $this->team($owner, 'acme');
+    $entered = [];
+    Agents::enteringTenant(function (Model $tenant) use (&$entered): ?Closure {
+        $entered[] = $tenant->slug;
+
+        return null;
+    });
+    $ran = 0;
+    Agents::useMiddleware([function (PendingStep $step, Closure $next) use (&$ran) {
+        $ran++;
+
+        return $next($step);
+    }]);
+    WidgetAgent::fake(['Two widgets are live.']);
+
+    // The context: a key of a workspace that is gone is refused, and refused as a WorkspaceAccessDenied too.
+    actingAs($owner);
+    expect(fn () => AgentRuntime::enter(['tenant' => 999]))
+        ->toThrow(WorkspaceNotFound::class, 'This workspace no longer exists.')
+        ->and(fn () => AgentRuntime::enter(['tenant' => 999, 'user' => $owner->getAuthIdentifier()]))
+        ->toThrow(WorkspaceAccessDenied::class)
+        ->and($entered)->toBe([])
+        ->and(auth()->user()?->is($owner))->toBeTrue() // still signed in, as before the call
+        ->and(Agents::tenant())->toBeNull();
+    auth()->logout();
+
+    // The email channel: an unknown slug (or key) is dropped like a workspace the sender is not in — no reply.
+    expect(EmailChannel::receive(new InboundEmail(from: 'ada@example.com', subject: 'Widgets', text: 'How many?', messageId: '<m1@test>', tenant: 'initech')))->toBeNull()
+        ->and(EmailChannel::receive(new InboundEmail(from: 'ada@example.com', subject: 'Widgets', text: 'How many?', messageId: '<m2@test>', tenant: '999')))->toBeNull()
+        ->and(AgentTurn::query()->count())->toBe(0)
+        ->and($ran)->toBe(0)
+        ->and($entered)->toBe([]);
+    postJson('/agents/email', ['from' => 'ada@example.com', 'subject' => 'Widgets', 'text' => 'How many?', 'tenant' => 'initech'], ['X-Agent-Secret' => 'hook-secret'])->assertOk()->assertJson(['answered' => false]);
+    Mail::assertNothingSent();
+
+    // The worker: the workspace was deleted between the question and the turn — the turn fails with the line, nothing runs.
+    Agents::tenantUsing(fn () => $acme);
+    actingAs($owner);
+    Queue::fake();
+    $conversation = app(AgentConversationStore::class)->startConversation($owner, 'Still there?');
+    $turn = app(AgentTurns::class)->enqueue($conversation, $owner, ['prompt' => 'Still there?'], null, 'auto', null);
+    auth()->logout();
+    Agents::tenantUsing(fn () => null);
+    $acme->delete();
+
+    Queue::pushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $turn->id)->first()->handle(app(AgentTurns::class));
+
+    expect($turn->fresh()->status)->toBe(AgentTurn::FAILED)
+        ->and($turn->fresh()->error)->toBe('This workspace no longer exists.')
+        ->and($entered)->toBe([])
+        ->and($ran)->toBe(0)
         ->and(auth()->user())->toBeNull();
 });

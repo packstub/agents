@@ -94,7 +94,8 @@ class RunAgentTurn implements ShouldQueue
 
     /**
      * The person is no longer a member of the workspace the turn was asked in (revoked between the request and
-     * the worker): the turn ends failed with that line, without entering the workspace.
+     * the worker), or the workspace is gone (WorkspaceNotFound): the turn ends failed with that line, without
+     * entering the workspace.
      */
     protected function refuse(AgentTurns $turns, WorkspaceAccessDenied $denied): void
     {
