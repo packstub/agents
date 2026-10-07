@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Laravel\Ai\Models\Conversation;
+use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Support\AgentAnswer;
 use Packstub\Agents\Support\AgentRun;
@@ -50,7 +51,12 @@ class EmailChannel
         $conversation = self::conversationOf($mail, $participant);
         $prompt = self::body($mail);
 
-        $answer = AgentRun::as($participant)->in($tenant)->continuing($conversation)->ask($prompt);
+        try {
+            $answer = AgentRun::as($participant)->in($tenant)->continuing($conversation)->ask($prompt);
+        } catch (WorkspaceAccessDenied) {
+            // The sender names a workspace they are not a member of: dropped like a mail from nobody.
+            return null;
+        }
 
         $url = $chatUrl && $answer->conversation ? $chatUrl($answer->conversation) : null;
         Mail::to($mail->from)->send(new AgentAnswerMail($mail, $answer, $url));

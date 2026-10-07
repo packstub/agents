@@ -25,6 +25,7 @@ use Packstub\Agents\Events\ProposalDecided;
 use Packstub\Agents\Events\ToolCalled;
 use Packstub\Agents\Events\TurnStarted;
 use Packstub\Agents\Exceptions\TurnRefused;
+use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentAttachments;
@@ -66,7 +67,13 @@ class RunAgentTurn implements ShouldQueue
 
     public function handle(AgentTurns $turns): void
     {
-        $leave = AgentRuntime::enter($this->runtime);
+        try {
+            $leave = AgentRuntime::enter($this->runtime);
+        } catch (WorkspaceAccessDenied $denied) {
+            $this->refuse($turns, $denied);
+
+            return;
+        }
 
         try {
             $turn = AgentTurn::query()->find($this->turnId);
@@ -85,10 +92,36 @@ class RunAgentTurn implements ShouldQueue
         }
     }
 
+    /**
+     * The person is no longer a member of the workspace the turn was asked in (revoked between the request and
+     * the worker): the turn ends failed with that line, without entering the workspace.
+     */
+    protected function refuse(AgentTurns $turns, WorkspaceAccessDenied $denied): void
+    {
+        $leave = AgentRuntime::enter(['tenant' => null] + $this->runtime);
+
+        try {
+            $turn = AgentTurn::query()->find($this->turnId);
+
+            if ($turn && $turn->isOpen() && ($turn->status !== AgentTurn::PENDING || $turns->claim($turn))) {
+                $turns->finish($turn, AgentTurn::FAILED, $denied->getMessage());
+                $turns->startNext($turn->conversation_id);
+            }
+        } finally {
+            $leave();
+        }
+    }
+
     /** The worker gave up on the job (timeout, lost process): the question keeps its Retry. */
     public function failed(?Throwable $exception): void
     {
-        $leave = AgentRuntime::enter($this->runtime);
+        try {
+            $leave = AgentRuntime::enter($this->runtime);
+        } catch (WorkspaceAccessDenied $denied) {
+            $this->refuse(app(AgentTurns::class), $denied);
+
+            return;
+        }
 
         try {
             $turn = AgentTurn::query()->find($this->turnId);

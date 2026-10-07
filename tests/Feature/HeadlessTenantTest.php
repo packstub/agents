@@ -1,8 +1,12 @@
 <?php
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\PendingStep;
+use Packstub\Agents\Channels\Email\EmailChannel;
+use Packstub\Agents\Channels\Email\InboundEmail;
+use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Models\AgentLimit;
@@ -11,6 +15,7 @@ use Packstub\Agents\Support\AgentBudget;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentLimits;
 use Packstub\Agents\Support\AgentModels;
+use Packstub\Agents\Support\AgentRun;
 use Packstub\Agents\Support\AgentRuntime;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Tests\Fixtures\Abilities;
@@ -135,4 +140,65 @@ it('keys budgets and limits by the workspace tenantUsing() resolves', function (
 
     $current = $this->team($owner, 'initech');
     expect(AgentBudget::refusal('Hi'))->toBeNull();
+});
+
+it('refuses to enter a workspace the person is not a member of, on every path', function () {
+    Mail::fake();
+    config()->set('packstub-agents.email.enabled', true);
+    config()->set('packstub-agents.email.secret', 'hook-secret');
+    $owner = $this->user(['email' => 'ada@example.com']);
+    $acme = $this->team($owner, 'acme');
+    $globex = $this->team($this->user(), 'globex');
+    $entered = [];
+    Agents::enteringTenant(function (Model $tenant) use (&$entered): ?Closure {
+        $entered[] = $tenant->slug;
+
+        return null;
+    });
+    $ran = 0;
+    Agents::useMiddleware([function (PendingStep $step, Closure $next) use (&$ran) {
+        $ran++;
+
+        return $next($step);
+    }]);
+    WidgetAgent::fake(['Two widgets are live.']);
+
+    // AgentRun: the app named a workspace that is not the person's.
+    expect(fn () => AgentRun::as($owner)->in($globex)->ask('How many widgets are live?'))
+        ->toThrow(WorkspaceAccessDenied::class, 'You are not a member of this workspace.')
+        ->and($entered)->toBe([])
+        ->and($ran)->toBe(0)
+        ->and(auth()->check())->toBeFalse() // nothing stays signed in
+        ->and(Agents::tenant())->toBeNull();
+
+    // The email channel: the sender picked another workspace's address — dropped, no reply, the provider is not retried.
+    expect(EmailChannel::receive(new InboundEmail(from: 'ada@example.com', subject: 'Widgets', text: 'How many?', messageId: '<m1@test>', tenant: 'globex')))->toBeNull()
+        ->and(AgentTurn::query()->count())->toBe(0)
+        ->and($entered)->toBe([]);
+    postJson('/agents/email', ['from' => 'ada@example.com', 'subject' => 'Widgets', 'text' => 'How many?', 'tenant' => 'globex'], ['X-Agent-Secret' => 'hook-secret'])->assertOk()->assertJson(['answered' => false]);
+    Mail::assertNothingSent();
+
+    // The same person in their own workspace is answered.
+    $answer = AgentRun::as($owner)->in($acme)->ask('How many widgets are live?');
+    expect($answer->text)->toBe('Two widgets are live.')
+        ->and($entered)->toBe(['acme', 'acme']) // the run, then the in-process job
+        ->and($ran)->toBe(1);
+
+    // The worker: membership revoked between the question and the turn — the turn fails with the line, nothing runs.
+    Agents::tenantUsing(fn () => $acme);
+    actingAs($owner);
+    Queue::fake();
+    $conversation = app(AgentConversationStore::class)->startConversation($owner, 'Still there?');
+    $turn = app(AgentTurns::class)->enqueue($conversation, $owner, ['prompt' => 'Still there?'], null, 'auto', null);
+    auth()->logout();
+    Agents::tenantUsing(fn () => null);
+    $acme->update(['owner_id' => $globex->owner_id]);
+
+    Queue::pushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $turn->id)->first()->handle(app(AgentTurns::class));
+
+    expect($turn->fresh()->status)->toBe(AgentTurn::FAILED)
+        ->and($turn->fresh()->error)->toBe('You are not a member of this workspace.')
+        ->and($entered)->toBe(['acme', 'acme'])
+        ->and($ran)->toBe(1)
+        ->and(auth()->user())->toBeNull();
 });

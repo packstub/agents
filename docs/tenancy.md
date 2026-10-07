@@ -19,7 +19,7 @@ Agents::enteringTenant(function (Team $team): Closure {
 });
 ```
 
-A queue worker running a turn and an MCP request both *enter* the workspace the turn or the path names: the model is found by key or slug, the person's `canAccessTenant()` is checked, and `enteringTenant()` runs (its return value runs on leaving), so a database switch or a scope happens before any tool does.
+A queue worker running a turn, an MCP request, `AgentRun::in()` and the email channel all *enter* the workspace the turn, the path, the call or the mail names: the model is found by key or slug, the person's `canAccessTenant()` is checked, and `enteringTenant()` runs (its return value runs on leaving), so a database switch or a scope happens before any tool does. When the person is not a member, nothing is entered: the context throws `Packstub\Agents\Exceptions\WorkspaceAccessDenied` ("You are not a member of this workspace."), `AgentRun` lets it through to the caller, the email channel drops the mail without a reply, and a queued turn whose membership was revoked after the question ends `failed` with that line.
 
 **In a Filament panel**, the panel's tenant is the workspace, Filament's `TenantSet` event plays the part of `enteringTenant()`, and [Filament Tenancy](https://packstub.dev/plugins/filament-tenancy) switches the database on it; see [Filament Agents](https://packstub.dev/docs/filament-agents/tenancy).
 

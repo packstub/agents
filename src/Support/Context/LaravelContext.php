@@ -7,6 +7,7 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Packstub\Agents\Contracts\AgentContext;
+use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
 
 /**
@@ -85,6 +86,17 @@ class LaravelContext implements AgentContext
         $key = $context['tenant'] ?? null;
         $tenant = $key !== null ? $this->findTenant($key) : null;
         $leaveTenant = null;
+
+        if ($tenant && $user && ! $this->canAccessTenant($user, $tenant)) {
+            // Fail closed before anything is entered: undo what was set so far and refuse.
+            if ($userChanged) {
+                $previousUser ? $guard->setUser($previousUser) : $guard->forgetUser();
+            }
+
+            Auth::shouldUse($previousGuard);
+
+            throw WorkspaceAccessDenied::make();
+        }
 
         if ($tenant) {
             $this->isEntered = true;
