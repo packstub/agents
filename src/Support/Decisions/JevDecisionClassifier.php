@@ -58,8 +58,13 @@ class JevDecisionClassifier implements DecisionClassifier
                 continue;
             }
 
+            // Without a confidence the floor could not hold Jev's answer, so it decides nothing: the reply is a question.
             $confidence = $answer['confidence'] ?? $answer['probabilities'][$choice] ?? null;
-            $decisions[$ids[$key]] = ['decision' => $choice, 'confidence' => is_numeric($confidence) ? (float) $confidence : null];
+            if (! is_numeric($confidence)) {
+                continue;
+            }
+
+            $decisions[$ids[$key]] = ['decision' => $choice, 'confidence' => (float) $confidence];
         }
 
         return ['decisions' => $decisions, 'reason' => null];

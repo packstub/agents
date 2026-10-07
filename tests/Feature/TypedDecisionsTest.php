@@ -181,6 +181,7 @@ it('reads a typed reply with the app\'s own classifier, and makes it a question 
     actingAs($user);
     WidgetAgent::fake([]);
     config(['packstub-agents.decision_classifier.enabled' => true, 'packstub-agents.decision_classifier.driver' => FakeDecisionClassifier::class]);
+    FakeDecisionClassifier::$asked = [];
 
     FakeDecisionClassifier::$reading = ['decisions' => ['c1' => ['decision' => 'approve', 'confidence' => 0.97], 'c2' => ['decision' => 'reject', 'confidence' => 0.91]], 'reason' => 'Only Alpha.'];
     $turn = replyOverTwoProposals($user, 'Yes, but only Alpha.');
@@ -223,6 +224,7 @@ it('reads a typed reply with Jev, one choice question per proposal, and makes it
     Http::fake(['api.typesafe.ai/v1/systemone' => Http::sequence()
         ->push(['model' => 'jev-1.13.0', 'answers' => ['p1' => $answer('approve', 0.94), 'p2' => $answer('reject', 0.9)], 'usage' => ['input_tokens' => 300, 'output_tokens' => 20]])
         ->push(['model' => 'jev-1.13.0', 'answers' => ['p1' => $answer('approve', 0.94), 'p2' => $answer('reject', 0.55)]])
+        ->push(['model' => 'jev-1.13.0', 'answers' => ['p1' => $answer('approve', 0.94), 'p2' => ['type' => 'choice', 'choice' => 'reject']]])
         ->push(['detail' => 'Rate limited.'], 429),
     ]);
 
@@ -243,14 +245,15 @@ it('reads a typed reply with Jev, one choice question per proposal, and makes it
             && str_contains($questions['p2']['instructions'], 'proposal c2');
     });
 
-    // Unsure about Beta: a question. Rate limited: a question.
+    // Unsure about Beta: a question. No confidence for Beta, so the floor cannot hold it: a question. Rate limited: a question.
     expect(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull()
+        ->and(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull()
         ->and(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull();
 
     // Without a key nothing is sent and the reply is a question.
     config(['packstub-agents.decision_classifier.jev.key' => null]);
     expect(replyOverTwoProposals($user, 'Yes, but only Alpha.')->decisions())->toBeNull();
-    Http::assertSentCount(3);
+    Http::assertSentCount(4);
 });
 
 class FakeDecisionClassifier implements DecisionClassifier
