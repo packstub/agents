@@ -186,6 +186,28 @@ it('enforces the budget and the operator rows in a single workspace', function (
         ->and(AgentBudget::refusal('Hi'))->toBe(__(':name is switched off for this workspace.', ['name' => 'Ask Widgets']));
 });
 
+it('counts the daily turns and tokens from the turns that ended, with no workspace to key them by', function () {
+    $user = $this->user();
+    actingAs($user);
+    $turn = fn (string $status, int $tokens, ?string $reason = null) => AgentTurn::query()->create([
+        'id' => (string) Str::uuid7(), 'conversation_id' => (string) Str::uuid7(), 'participant_id' => $user->id, 'status' => $status,
+        'input' => ['prompt' => 'Hi'], 'usage' => ['input_tokens' => $tokens, 'output_tokens' => 0], 'finish_reason' => $reason, 'finished_at' => now(),
+    ]);
+    $turn(AgentTurn::DONE, 40);
+    $turn(AgentTurn::FAILED, 0, 'refused');
+    $turn(AgentTurn::FAILED, 25, 'failed'); // failed after a tool step: what it used is counted, the answer it never gave is not
+    AgentTurn::query()->create(['id' => (string) Str::uuid7(), 'conversation_id' => (string) Str::uuid7(), 'participant_id' => $user->id, 'status' => AgentTurn::RUNNING, 'input' => ['prompt' => 'Hi']]);
+
+    expect(AgentBudget::turnsToday())->toBe(1)
+        ->and(AgentBudget::tokensToday())->toBe(65)
+        ->and(AgentBudget::tokensToday($user->id))->toBe(65)
+        ->and(AgentBudget::tokensToday($this->user()->id))->toBe(0);
+
+    AgentLimit::query()->create(['scope' => 'global', 'tokens_per_day' => 65]);
+    AgentLimits::flush();
+    expect(AgentBudget::refusal('Hi'))->toBe(__('This workspace used its AI budget for today. It resets at midnight.'));
+});
+
 it('registers the poll endpoint under chat.path and chat.middleware for the conversation\'s own participant', function () {
     $user = $this->user();
     $other = $this->user();

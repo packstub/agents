@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.7.2 — 2026-10-07
+
+### Fixed
+
+- **The daily and monthly budgets are counted per workspace on a shared database** (#24). `AgentBudget::turnsToday()`, `tokensToday()` and `tokensThisMonth()` now count from `agent_turns`, the record every turn leaves with its workspace, instead of `agent_conversation_messages`, which carries none: the turns that ended in the current workspace (the rows without one outside every workspace, and in an app without workspaces, so nothing changes there), with a person's own tokens counted in each workspace separately. Before, workspace A's members could use up the turns and every member of workspace B was refused with "This workspace reached today's limit", and a person in two workspaces had their tokens counted across both; database-per-tenant apps, whose tables are split, were not affected. Answers per day are the turns the provider answered (`done` or `stopped`); tokens are what every ended turn used, a failed one included. Run the migrations: an index on `agent_turns (tenant, finished_at)` serves the counters, guarded for existing installs. Keep `chat.keep_turns_days` at 31 or more (90 by default), since the monthly counters read the turns that are still there. Found while auditing after the 1.7.1 membership fix.
+
 ## 1.7.1 — 2026-10-07
 
 ### Security

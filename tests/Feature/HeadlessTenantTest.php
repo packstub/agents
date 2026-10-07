@@ -3,6 +3,7 @@
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Laravel\Ai\PendingStep;
 use Packstub\Agents\Channels\Email\EmailChannel;
 use Packstub\Agents\Channels\Email\InboundEmail;
@@ -210,4 +211,56 @@ it('refuses to enter a workspace the person is not a member of, on every path', 
         ->and($entered)->toBe(['acme', 'acme'])
         ->and($ran)->toBe(1)
         ->and(auth()->user())->toBeNull();
+});
+
+it('counts the daily and monthly budgets per workspace on a shared database, from the turns each one ended', function () {
+    $owner = $this->user();
+    $other = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $globex = $this->team($owner, 'globex');
+    actingAs($owner);
+    $current = $acme;
+    Agents::tenantUsing(function () use (&$current) {
+        return $current;
+    });
+    $ended = function (?Team $team, object $user, string $status = AgentTurn::DONE, int $tokens = 100, ?string $reason = null, $at = null) {
+        AgentTurn::query()->create([
+            'id' => (string) Str::uuid7(), 'conversation_id' => (string) Str::uuid7(), 'participant_type' => $user::class, 'participant_id' => $user->id,
+            'status' => $status, 'input' => ['prompt' => 'Hi'], 'tenant' => $team ? (string) $team->id : null, 'usage' => ['input_tokens' => $tokens, 'output_tokens' => 0],
+            'finish_reason' => $reason, 'finished_at' => $at ?? now(),
+        ]);
+    };
+
+    // Acme used two answers (one stopped half-way) and had a turn refused; Globex nothing.
+    $ended($acme, $owner);
+    $ended($acme, $other, AgentTurn::STOPPED, 50);
+    $ended($acme, $owner, AgentTurn::FAILED, 0, 'refused');
+    AgentLimit::query()->create(['scope' => 'global', 'turns_per_day' => 2, 'tokens_per_month' => 1000, 'user_tokens_per_day' => 120]);
+    AgentLimits::flush();
+
+    expect(AgentBudget::turnsToday())->toBe(2)
+        ->and(AgentBudget::tokensThisMonth())->toBe(150)
+        ->and(AgentBudget::tokensToday($owner->id))->toBe(100)
+        ->and(AgentBudget::refusal('Hi'))->toBe(__('This workspace reached today\'s limit of :n answers. It resets at midnight.', ['n' => 2]))
+        ->and(AgentBudget::summary()['turns_today'])->toBe(2);
+
+    // Globex is untouched by Acme's turns, and the owner's own tokens there start from zero.
+    $current = $globex;
+    expect(AgentBudget::turnsToday())->toBe(0)
+        ->and(AgentBudget::tokensThisMonth())->toBe(0)
+        ->and(AgentBudget::tokensToday($owner->id))->toBe(0)
+        ->and(AgentBudget::refusal('Hi'))->toBeNull();
+
+    // A turn in Globex counts against the owner there only: 100 in Acme and 30 in Globex both stay under the 120 per workspace.
+    $ended($globex, $owner, AgentTurn::DONE, 30);
+    expect(AgentBudget::tokensToday($owner->id))->toBe(30)->and(AgentBudget::refusal('Hi'))->toBeNull();
+    $current = $acme;
+    expect(AgentBudget::tokensToday($owner->id))->toBe(100);
+
+    // Outside every workspace only the turns without one count, and a turn that ended before today is not today's.
+    $current = null;
+    expect(AgentBudget::turnsToday())->toBe(0)->and(AgentBudget::tokensThisMonth())->toBe(0);
+    $ended(null, $owner, AgentTurn::DONE, 7, at: now()->startOfDay()->subSecond());
+    $ended(null, $owner, AgentTurn::DONE, 9);
+    expect(AgentBudget::turnsToday())->toBe(1)->and(AgentBudget::tokensToday())->toBe(9);
 });
