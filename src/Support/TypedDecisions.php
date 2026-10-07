@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Packstub\Agents\Contracts\DecisionClassifier;
 use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Support\Decisions\AgentDecisionClassifier;
+use Packstub\Agents\Support\Decisions\JevDecisionClassifier;
 use Throwable;
 
 /**
@@ -40,7 +42,7 @@ class TypedDecisions
      * Decide the pending proposals from the reply, or null when it is not a decision.
      *
      * @param  array<string, array{name: string, arguments: array<string, mixed>}>  $pending  call id => the proposed call
-     * @return array{decisions: array<string, bool>, by: string, reason: ?string}|null
+     * @return array{decisions: array<string, bool>, by: string, reason: ?string, driver?: string, confidence?: ?float}|null the classifier's adds the driver that read the reply and its lowest confidence
      */
     public function decide(string $text, array $pending, ?string $model = null): ?array
     {
@@ -226,7 +228,7 @@ class TypedDecisions
      * or a failure, makes the reply a question.
      *
      * @param  Closure(): array<string, array{name: string, arguments: array<string, mixed>, question: string}>  $build  the pending calls with their questions
-     * @return array{decisions: array<string, bool>, by: string, reason: ?string}|null
+     * @return array{decisions: array<string, bool>, by: string, reason: ?string, driver: string, confidence: ?float}|null
      */
     protected function byClassifier(string $text, Closure $build, ?string $model): ?array
     {
@@ -238,7 +240,8 @@ class TypedDecisions
 
         try {
             $proposals = $build();
-            $reading = app(DecisionClassifier::class)->classify(Str::limit($text, 1000), $proposals, $model);
+            $classifier = app(DecisionClassifier::class);
+            $reading = $classifier->classify(Str::limit($text, 1000), $proposals, $model);
         } catch (Throwable $e) {
             report($e);
 
@@ -248,6 +251,7 @@ class TypedDecisions
         $floor = config('packstub-agents.decision_classifier.min_confidence');
 
         $decisions = [];
+        $lowest = null;
         foreach (array_keys($proposals) as $id) {
             $entry = $reading['decisions'][$id] ?? null;
             $decision = is_array($entry) ? ($entry['decision'] ?? null) : null;
@@ -262,11 +266,22 @@ class TypedDecisions
             }
 
             $decisions[$id] = $decision === DecisionClassifier::APPROVE;
+            $lowest = $confidence === null ? $lowest : min($lowest ?? 1.0, (float) $confidence);
         }
 
         $reason = Str::limit(trim((string) ($reading['reason'] ?? '')), 300);
 
-        return ['decisions' => $decisions, 'by' => self::BY_CLASSIFIER, 'reason' => $reason !== '' ? $reason : null];
+        return ['decisions' => $decisions, 'by' => self::BY_CLASSIFIER, 'reason' => $reason !== '' ? $reason : null, 'driver' => self::driverName($classifier), 'confidence' => $lowest];
+    }
+
+    /** The name a turn records for the classifier that read the reply: `agent`, `jev`, or the app's class. */
+    public static function driverName(DecisionClassifier $classifier): string
+    {
+        return match (true) {
+            $classifier instanceof AgentDecisionClassifier => 'agent',
+            $classifier instanceof JevDecisionClassifier => 'jev',
+            default => $classifier::class,
+        };
     }
 
     /**
