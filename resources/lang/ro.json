@@ -1,4 +1,5 @@
 {
+    "(This conversation starts with a message you posted.)": "(Această conversație începe cu un mesaj pe care l-ai postat.)",
     "(see the attached file)": "(vezi fișierul atașat)",
     ":days days": ":days zile",
     ":minutes min": ":minutes min",
@@ -16,6 +17,7 @@
     "Attachment": "Atașament",
     "Attachments are switched off.": "Atașamentele sunt dezactivate.",
     "Chat": "Conversație",
+    "Deferred": "Amânat",
     "Done": "Gata",
     "Everyone": "Toți",
     "Failed": "Eșuat",

@@ -59,7 +59,7 @@ it('answers a question into a persisted conversation, rates the answer, and keep
         ->and($messages[1]['html'])->toContain('Two widgets are live')
         ->and($messages[1]['regenerable'])->toBeTrue()
         ->and($messages[1]['rating'])->toBeNull()
-        ->and($chat->live())->toBe(['active' => null, 'queued' => [], 'held' => [], 'ended' => null]);
+        ->and($chat->live())->toBe(['active' => null, 'queued' => [], 'held' => [], 'ended' => null, 'deferred' => null]);
 
     $history = $chat->history();
     expect($history['turns']['count'])->toBe(1)

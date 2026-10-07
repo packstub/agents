@@ -37,7 +37,7 @@ $chat = AgentChat::for($user, $conversationId, 'fast', 'orders/12'); // an exist
 $turn = $chat->send('Which orders are waiting?');    // the AgentTurn queued (null: empty question, agent off)
 $chat->conversation();                               // set by the first question
 $chat->messages();                                   // the transcript, see below
-$chat->live();                                       // ['active' => the running turn, 'queued' => the questions behind it, 'held' => decisions waiting for the other proposals, 'ended' => how the last one failed]
+$chat->live();                                       // ['active' => the running turn, 'queued' => the questions behind it, 'held' => decisions waiting for the other proposals, 'ended' => how the last one failed, 'deferred' => the turn that starts when the chat is opened]
 $chat->decide('call_1', approve: true);              // a proposal's decision, as a turn
 $chat->retry(); $chat->regenerate(); $chat->resend('…'); $chat->stop();
 $chat->retry($messageId);                            // an earlier question that never got its answer (below)
@@ -55,7 +55,7 @@ $chat->transcript();                                 // the chat as Markdown, fo
 AgentChat::search($user, 'alpha');                   // the person's chats whose messages or title match, with a snippet
 ```
 
-`messages()` returns the conversation oldest first, each with `role`, `text`, `html` (an answer rendered), `tools` — every call with its `question` (the proposal as a sentence), `pending`, `held` (a decision waiting for the other proposal of the same answer), `rejected`, `result`, `readOnly` — `charts` (Chart.js payloads from `chart` results), `tables` (a `show-table` result, when the app registers agent resources), `attachments` (the files sent with a question: `name`, `mime`, `image`, `url` when the disk gives one), `rating` and `ratingNote`, `versions` (how many earlier answers a question has), `continuation` (a question sent by Continue, which a surface hides) and `continued` (an answer that carries on the one above), `stopped`, `cutShort`, `answeredBy`, `sources` (the pages an answer cites, from a provider's [web search](tools.md#web-search)), and what a surface may offer on it: `unanswered` (a Retry, with `ended`: how the question's last turn went), `editable` (Edit on the last question), `regenerable` (Regenerate on the last answer), `continuable` (Continue, when the model's length limit cut the last answer), only while nothing runs or waits — a decision held for the other proposal of its answer keeps the chat busy too, so the paused answer cannot be edited or produced again under it. Poll or stream the [turn endpoint](#live-updates) for the running answer, then read `messages()` again. On the sync driver the turn a method returns has already run, so its `status` and `error` say how it went. The static helpers phrase what a surface shows: `question($tool, $name, $arguments)`, `resultText($result)`, `chartFromResult()`, `tableFromResult()`, `cutShortText($reason)`, `duration($ms)`, `breakdownLabels()`, `modelMenu()` (the picker's entries by provider, with the model name under a label) and `writeToolNames()`.
+`messages()` returns the conversation oldest first, each with `role`, `text`, `html` (an answer rendered), `tools` — every call with its `question` (the proposal as a sentence), `pending`, `held` (a decision waiting for the other proposal of the same answer), `rejected`, `result`, `readOnly` — `charts` (Chart.js payloads from `chart` results), `tables` (a `show-table` result, when the app registers agent resources), `attachments` (the files sent with a question: `name`, `mime`, `image`, `url` when the disk gives one), `rating` and `ratingNote`, `versions` (how many earlier answers a question has), `continuation` (a question sent by Continue, which a surface hides) and `continued` (an answer that carries on the one above), `stopped`, `posted` (a message [the app posted](#a-message-the-app-posts-as-the-assistant)), `cutShort`, `answeredBy`, `sources` (the pages an answer cites, from a provider's [web search](tools.md#web-search)), and what a surface may offer on it: `unanswered` (a Retry, with `ended`: how the question's last turn went), `editable` (Edit on the last question), `regenerable` (Regenerate on the last answer), `continuable` (Continue, when the model's length limit cut the last answer), only while nothing runs or waits — a decision held for the other proposal of its answer keeps the chat busy too, so the paused answer cannot be edited or produced again under it. Poll or stream the [turn endpoint](#live-updates) for the running answer, then read `messages()` again. On the sync driver the turn a method returns has already run, so its `status` and `error` say how it went. The static helpers phrase what a surface shows: `question($tool, $name, $arguments)`, `resultText($result)`, `chartFromResult()`, `tableFromResult()`, `cutShortText($reason)`, `duration($ms)`, `breakdownLabels()`, `modelMenu()` (the picker's entries by provider, with the model name under a label) and `writeToolNames()`.
 
 ### Retry, on any unanswered question
 
@@ -66,6 +66,30 @@ A question is recorded before the provider is called, so one that failed, was re
 ### The record a chat is about
 
 A page context (`orders/12`) given to `AgentChat::for()` is recorded with every question asked under it, so the chat stays about that record: `AgentChat::for($user, $conversationId)` without a context takes the one the last question was asked with, and the model keeps reading the record's summary on every follow-up. A context passed when the chat is reopened wins, and is the conversation's from then on. `contextLabel()` is what a surface shows ("About Order RO-00012"), `contextUrl()` the record's page to link it to (`PageContext::url($ref)`: the resource's `agentRecordUrl()`, or the `url` of its summary).
+
+### A message the app posts as the assistant
+
+A digest, a reminder, a notice — text your app computed — can be posted into a conversation as the assistant's own message, so the person reads it where they would read an answer and can reply to it:
+
+```php
+$store = app(AgentConversationStore::class);
+
+$conversation = $store->startConversation($user, $text, title: 'Monday digest'); // or an existing one
+$store->storePostedMessage($conversation, $user, $text);
+```
+
+`startConversation()` takes a title, so a conversation can be opened without a question (without one, the title is the first question, as before). The posted message is an ordinary assistant row marked `posted` in its meta (`AgentConversationStore::wasPosted($meta)`): `messages()` returns it like any answer, with `posted` set beside `stopped`, and the next turn reads it as history — a window that opens on a posted message gets one line in front that says the assistant posted it, since a provider may require the person to speak first. No provider wrote it, so no tokens are spent: `AgentBudget` leaves posted rows out of the day's turns, and the turn log lists it as a done turn ended `posted`, without provider, usage or cost. A posted last message cannot be regenerated, and a question that a posted message follows cannot be edited (editing would drop it). A conversation your app titled keeps its title: the provider titles a chat only after its first answer, when no assistant message exists yet.
+
+### A first turn that runs when the chat is opened
+
+When your app opens a conversation for someone — a close to walk through, a summary to discuss — store what it asks now and let the answer be produced when they come to read it:
+
+```php
+$conversation = $store->startConversation($user, $question, title: 'September close');
+$turn = app(AgentTurns::class)->defer($conversation, $user, ['prompt' => $question], 'auto', 'orders/12');
+```
+
+`defer()` records the question in the transcript at once and stores the turn as `deferred`: outside the line (`startNext()`, `active()`, `state()` and `reconcile()` ignore it) and never pruned while it waits. `AgentChat::live()` reports it as `deferred` (its id and, after a refused open, the reason), `idle()` is false until it ran, and the question is not offered a Retry — it is being answered when opened. The surface that opens the conversation calls `AgentTurns::startDeferred($conversation, $participant)`: under a lock on the conversation the owner's deferred turn is queued and started once, with who is acting and where captured at that moment (the panel, the guard, the workspace and the locale of the opener), and `AgentBudget::refusal()` checked then rather than when the row was written. It returns the turn that started, or `null` when there is none, another request is starting it, or the budget refused it — then the turn stays deferred for a later open, with the refusal in its `error`. Anyone who is not the owner starts nothing. Filament Agents' chat page calls it whenever it opens an existing conversation; `AgentTurns::deferred($conversation)` reads the waiting turn in code.
 
 ### Live updates
 

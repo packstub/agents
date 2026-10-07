@@ -1,4 +1,5 @@
 {
+    "(This conversation starts with a message you posted.)": "(Esta conversación empieza con un mensaje que publicaste.)",
     "(see the attached file)": "(ver el archivo adjunto)",
     ":days days": ":days días",
     ":minutes min": ":minutes min",
@@ -16,6 +17,7 @@
     "Attachment": "Adjunto",
     "Attachments are switched off.": "Los adjuntos están desactivados.",
     "Chat": "Chat",
+    "Deferred": "Aplazado",
     "Done": "Hecho",
     "Everyone": "Todos",
     "Failed": "Fallido",

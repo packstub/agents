@@ -62,9 +62,15 @@ class AgentBudget
         RateLimiter::hit(self::minuteKey(), 60);
     }
 
+    /** The answers the model wrote today; a message the app posted as the assistant is not one. */
     public static function turnsToday(): int
     {
-        return ConversationMessage::query()->where('role', 'assistant')->where('created_at', '>=', now()->startOfDay())->count();
+        return ConversationMessage::query()
+            ->where('role', 'assistant')
+            ->where('created_at', '>=', now()->startOfDay())
+            ->pluck('meta')
+            ->reject(fn ($meta) => AgentConversationStore::wasPosted($meta))
+            ->count();
     }
 
     public static function tokensToday(int|string|null $userId = null): int

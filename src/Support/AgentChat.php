@@ -350,6 +350,7 @@ class AgentChat
                     'versions' => $m->role === 'user' ? (int) ($versions[$m->id] ?? 0) : 0, // earlier answers to this question
                     'at' => $m->created_at,
                     'stopped' => AgentConversationStore::wasStopped($m->meta),
+                    'posted' => AgentConversationStore::wasPosted($m->meta), // written by the app as the assistant (a digest, a reminder), not by the model
                     'failed' => $failed, // the provider gave up part-way: what arrived is kept with the error (laravel/ai 1.0 records it)
                     'error' => $failed ? (string) ($m->meta['error'] ?? '') : null,
                     'reasoning' => $m->role === 'assistant' ? trim(implode("\n\n", array_filter(array_column($m->steps ?? [], 'reasoning')))) : '', // what the model thought before answering, when the provider reports it
@@ -376,7 +377,10 @@ class AgentChat
             }
         }
 
-        if ($idle && $lastQuestion !== null) {
+        // A message the app posted after the last question is not an answer to it: editing the question would drop it.
+        $postedAfter = $lastQuestion !== null && $list->slice($lastQuestion + 1)->contains('posted', true);
+
+        if ($idle && $lastQuestion !== null && ! $postedAfter) {
             $list->put($lastQuestion, [...$list[$lastQuestion], 'editable' => true]);
         }
 
@@ -394,9 +398,10 @@ class AgentChat
             // A question with nothing after it was recorded but not answered: while a turn runs it is being answered,
             // otherwise the provider failed or the person stopped it and it gets a Retry.
             $list->push([...$list->pop(), 'unanswered' => $idle]);
-        } elseif ($idle && ! collect($last['tools'])->contains('pending', true)) {
+        } elseif ($idle && ! $last['posted'] && ! collect($last['tools'])->contains('pending', true)) {
             // The last answer: produce it again, or — when the model's length limit cut it — carry on where it stopped.
             // A failed one is produced again too (the row keeps what arrived, so the question is not unanswered).
+            // A posted message has no turn to produce again.
             $list->push([...$list->pop(), 'regenerable' => true, 'continuable' => $last['cutShort'] === 'length']);
         }
 
@@ -594,7 +599,7 @@ class AgentChat
      * held until the other proposals of the same answer are decided, and how the last turn ended when the last
      * question has no answer.
      *
-     * @return array{active: ?array{id: string, status: string, statusText: string, html: string}, queued: list<array{id: string, text: string}>, held: array<string, bool>, ended: ?array{status: string, reason: ?string, error: ?string, decision: bool}}
+     * @return array{active: ?array{id: string, status: string, statusText: string, html: string}, queued: list<array{id: string, text: string}>, held: array<string, bool>, ended: ?array{status: string, reason: ?string, error: ?string, decision: bool}, deferred: ?array{id: string, error: ?string}}
      */
     public function live(): array
     {
@@ -603,7 +608,7 @@ class AgentChat
         }
 
         if (! $this->conversation) {
-            return $this->live = ['active' => null, 'queued' => [], 'held' => [], 'ended' => null];
+            return $this->live = ['active' => null, 'queued' => [], 'held' => [], 'ended' => null, 'deferred' => null];
         }
 
         $turns = app(AgentTurns::class);
@@ -611,6 +616,7 @@ class AgentChat
         $active = $turns->active($this->conversation);
         $latest = $turns->latest($this->conversation);
         $queued = $turns->queued($this->conversation);
+        $deferred = $turns->deferred($this->conversation);
 
         return $this->live = [
             'active' => $active ? [
@@ -623,18 +629,21 @@ class AgentChat
             'queued' => $queued->filter(fn (AgentTurn $t) => $t->prompt() !== null)->map(fn (AgentTurn $t) => ['id' => $t->id, 'text' => (string) $t->prompt()])->values()->all(),
             'held' => $queued->first(fn (AgentTurn $t) => $t->decisions() !== null)?->decisions() ?? [],
             'ended' => $latest && in_array($latest->status, [AgentTurn::FAILED, AgentTurn::STOPPED], true) ? ['status' => $latest->status, 'reason' => $latest->finish_reason, 'error' => $latest->error, 'decision' => $latest->decisions() !== null] : null,
+            // The turn that starts when the person opens the chat (AgentTurns::startDeferred()); `error` is the budget's refusal on their last open.
+            'deferred' => $deferred ? ['id' => $deferred->id, 'error' => $deferred->error] : null,
         ];
     }
 
     /**
      * Nothing runs or waits on this conversation: no turn in progress, no question in the line, no decision held
-     * for the other proposals of its answer. Only another decision may be made while one is held (decide()).
+     * for the other proposals of its answer, no deferred turn waiting for the person to open the chat. Only
+     * another decision may be made while one is held (decide()).
      */
     public function idle(): bool
     {
         $live = $this->live();
 
-        return $live['active'] === null && $live['queued'] === [] && $live['held'] === [];
+        return $live['active'] === null && $live['queued'] === [] && $live['held'] === [] && $live['deferred'] === null;
     }
 
     /** Forget the live state, so the next read hits the database (after a turn was queued, removed or edited). */
