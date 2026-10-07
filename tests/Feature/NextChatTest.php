@@ -25,6 +25,7 @@ use Packstub\Agents\Support\AgentChat;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentPricing;
 use Packstub\Agents\Support\AgentRun;
+use Packstub\Agents\Support\PageContext;
 use Packstub\Agents\Testing\AgentEval;
 use Packstub\Agents\Tests\Fixtures\Abilities;
 use Packstub\Agents\Tests\Fixtures\WidgetAgent;
@@ -456,4 +457,46 @@ it('evaluates the agent in a test: which tools it called with which arguments, w
 
     $refused = AgentEval::as($user)->expecting(['never'])->ask(str_repeat('x', 5000));
     $refused->assertRefused('characters')->assertFailed();
+});
+
+it('hides a record the person may not view from mentions, the page context and record://', function () {
+    $user = $this->user();
+    actingAs($user);
+    [$alpha, $beta] = $this->widgets();
+    $token = $user->createToken('laptop', ['read'])->plainTextToken;
+    $headers = ['Authorization' => 'Bearer '.$token, 'Accept' => 'application/json, text/event-stream'];
+    $rpc = function (string $method, array $params = []) use ($headers, $user) {
+        auth()->forgetGuards();
+        $response = postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => $method, 'params' => $params], $headers);
+        actingAs($user);
+
+        return $response;
+    };
+
+    // The resource's own view check (canView($record), else canViewAny()) decides, per record.
+    Abilities::$denied = ['widgets.view.'.$beta->id];
+    WidgetAgent::fake(['Alpha is live.']);
+    $chat = AgentChat::for($user, context: "widgets/{$beta->id}");
+    $chat->send('Is @Widget Alpha like @Widget Beta?', mentions: ["widgets/{$alpha->id}", "widgets/{$beta->id}"]);
+
+    WidgetAgent::assertPrompted(fn ($prompt) => str_contains($prompt->prompt, "- @Widget Alpha (widgets/{$alpha->id})")
+        && ! str_contains($prompt->prompt, '- @Widget Beta')
+        && ! str_contains($prompt->prompt, "widgets/{$beta->id}")
+        && ! str_contains($prompt->prompt, 'opened this chat from'));
+    expect($chat->messages()[0]['mentions'])->toBe([['ref' => "widgets/{$alpha->id}", 'label' => 'Widget Alpha']])
+        ->and($chat->contextLabel())->toBeNull()
+        ->and($chat->contextUrl())->toBeNull()
+        ->and(PageContext::resolve("widgets/{$beta->id}"))->toBeNull()
+        ->and(PageContext::resolve("widgets/{$alpha->id}")['label'])->toBe('Widget Alpha');
+
+    expect($rpc('resources/read', ['uri' => "record://widgets/{$beta->id}"])->json('error.message'))->toBe("No widgets record matches {$beta->id}, or it cannot be viewed.")
+        ->and($rpc('resources/read', ['uri' => "record://widgets/{$alpha->id}"])->json('result.contents.0.text'))->toContain('"name":"Alpha"')
+        ->and($rpc('prompts/get', ['name' => 'ask-about-record', 'arguments' => ['resource' => 'widgets', 'id' => (string) $beta->id]])->json('error.message'))->toContain('or it cannot be viewed');
+
+    // A role that may not open the resource at all sees none of its records anywhere.
+    Abilities::$allowed = ['nothing'];
+    expect(PageContext::resolve("widgets/{$alpha->id}"))->toBeNull()
+        ->and(PageContext::url("widgets/{$alpha->id}"))->toBeNull()
+        ->and(AgentChat::for($user, context: "widgets/{$alpha->id}")->contextLabel())->toBeNull()
+        ->and($rpc('resources/read', ['uri' => "record://widgets/{$alpha->id}"])->json('error.message'))->toContain('or it cannot be viewed');
 });

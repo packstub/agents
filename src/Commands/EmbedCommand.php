@@ -39,7 +39,8 @@ class EmbedCommand extends Command
                 return self::FAILURE;
             }
 
-            $leave = AgentRuntime::enter(['tenant' => $tenant->getKey()]);
+            // The console acts for the app, not for a person: enter the workspace as the system.
+            $leave = AgentRuntime::enter(['tenant' => $tenant->getKey(), 'system' => true]);
         }
 
         try {
