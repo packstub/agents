@@ -214,7 +214,8 @@ return [
         'path' => 'agents',
         'middleware' => ['web', 'auth'],
         // Ended turns (the per-turn record: model, tokens, duration, how it ended) are kept this many days for the
-        // operator's AI turns page; null keeps them forever. Pruned by `model:prune --model=Packstub\\Agents\\Models\\AgentTurn`.
+        // operator's AI turns page and the daily and monthly budget counters (keep at least 31 days, or the monthly
+        // counters shrink); null keeps them forever. Pruned by `model:prune --model=Packstub\\Agents\\Models\\AgentTurn`.
         'keep_turns_days' => env('AGENT_KEEP_TURNS_DAYS', 90),
     ],
 
