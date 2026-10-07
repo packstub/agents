@@ -21,6 +21,20 @@ Agents::enteringTenant(function (Team $team): Closure {
 
 A queue worker running a turn, an MCP request, `AgentRun::in()` and the email channel all *enter* the workspace the turn, the path, the call or the mail names: the model is found by key or slug, the person's `canAccessTenant()` is checked, and `enteringTenant()` runs (its return value runs on leaving), so a database switch or a scope happens before any tool does. When the person is not a member, nothing is entered: the context throws `Packstub\Agents\Exceptions\WorkspaceAccessDenied` ("You are not a member of this workspace."), `AgentRun` lets it through to the caller, the email channel drops the mail without a reply, and a queued turn whose membership was revoked after the question ends `failed` with that line.
 
+A workspace is also refused when nobody acts at all: `AgentRuntime::enter(['tenant' => $key])` with no `user` and nobody signed in throws the same exception rather than entering unchecked. A job of your own that works inside a workspace for the app itself, not for a person (a scheduled re-embedding, a nightly report), says so with `system => true`:
+
+```php
+$leave = AgentRuntime::enter(['tenant' => $team->getKey(), 'system' => true]);
+
+try {
+    // enteringTenant() has run; queries are scoped to $team, nobody is signed in.
+} finally {
+    $leave();
+}
+```
+
+`system` only stands in for the missing person: once a `user` is given or signed in, their membership is checked as usual. `packstub-agents:embed --tenant=` enters this way.
+
 **In a Filament panel**, the panel's tenant is the workspace, Filament's `TenantSet` event plays the part of `enteringTenant()`, and [Filament Tenancy](https://packstub.dev/plugins/filament-tenancy) switches the database on it; see [Filament Agents](https://packstub.dev/docs/filament-agents/tenancy).
 
 ## The MCP path

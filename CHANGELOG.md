@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.7.2 — 2026-10-07
+
+### Security
+
+- **A workspace with nobody acting is refused too** (#30). `LaravelContext::enter()` given a `tenant` with no `user` and nobody signed in on the guard used to enter the workspace, because the 1.7.1 membership check needed a person to check; it now throws `WorkspaceAccessDenied` like a non-member, so every path that enters a workspace fails closed. A job that acts for the app itself and not for a person passes `system => true` (`AgentRuntime::enter(['tenant' => $key, 'system' => true])`), which `packstub-agents:embed --tenant=` now does; it never replaces the check once someone acts. Apps without workspaces are unchanged. Reported by @kefyusuf as a follow-up to GHSA-3v46-4wxg-vjx7.
+
 ## 1.7.1 — 2026-10-07
 
 ### Security

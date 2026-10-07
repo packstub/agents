@@ -1,8 +1,10 @@
 <?php
 
+use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Laravel\Ai\Embeddings;
 use Laravel\Ai\PendingStep;
 use Packstub\Agents\Channels\Email\EmailChannel;
 use Packstub\Agents\Channels\Email\InboundEmail;
@@ -19,6 +21,7 @@ use Packstub\Agents\Support\AgentRun;
 use Packstub\Agents\Support\AgentRuntime;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Tests\Fixtures\Abilities;
+use Packstub\Agents\Tests\Fixtures\Models\Article;
 use Packstub\Agents\Tests\Fixtures\Models\Team;
 use Packstub\Agents\Tests\Fixtures\Tools\RetireWidget;
 use Packstub\Agents\Tests\Fixtures\Tools\WhoAmI;
@@ -26,6 +29,7 @@ use Packstub\Agents\Tests\Fixtures\WidgetAgent;
 
 use function Orchestra\Testbench\Pest\defineEnvironment;
 use function Pest\Laravel\actingAs;
+use function Pest\Laravel\artisan;
 use function Pest\Laravel\postJson;
 
 // A multi-workspace app without a panel: the MCP path carries the workspace.
@@ -210,4 +214,53 @@ it('refuses to enter a workspace the person is not a member of, on every path', 
         ->and($entered)->toBe(['acme', 'acme'])
         ->and($ran)->toBe(1)
         ->and(auth()->user())->toBeNull();
+});
+
+it('refuses to enter a workspace with nobody acting, unless the caller says the system itself acts', function () {
+    $owner = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $globex = $this->team($this->user(), 'globex');
+    $entered = [];
+    Agents::enteringTenant(function (Model $tenant) use (&$entered): Closure {
+        $entered[] = $tenant->slug;
+
+        return function () use (&$entered): void {
+            $entered[] = 'left';
+        };
+    });
+
+    // A tenant with no user given and nobody signed in: nothing was checked, so nothing is entered.
+    expect(fn () => AgentRuntime::enter(['tenant' => $acme->getKey()]))
+        ->toThrow(WorkspaceAccessDenied::class, 'You are not a member of this workspace.')
+        ->and($entered)->toBe([])
+        ->and(auth()->check())->toBeFalse()
+        ->and(Agents::tenant())->toBeNull();
+
+    // No workspace at all stays as it was: an app without workspaces enters nothing and needs nobody.
+    $leave = AgentRuntime::enter(['tenant' => null, 'locale' => 'de']);
+    expect(app()->getLocale())->toBe('de')->and($entered)->toBe([]);
+    $leave();
+    expect(app()->getLocale())->toBe('en');
+
+    // The app opts in for a job of its own: the system acts, the hook runs and is undone on leaving.
+    $leave = AgentRuntime::enter(['tenant' => $acme->getKey(), 'system' => true]);
+    expect(Agents::tenant()?->is($acme))->toBeTrue()
+        ->and($entered)->toBe(['acme'])
+        ->and(auth()->check())->toBeFalse();
+    $leave();
+    expect($entered)->toBe(['acme', 'left'])->and(Agents::tenant())->toBeNull();
+
+    // system does not stand in for a membership check once someone acts: a non-member is still refused.
+    expect(fn () => AgentRuntime::enter(['tenant' => $globex->getKey(), 'user' => $owner, 'system' => true]))
+        ->toThrow(WorkspaceAccessDenied::class)
+        ->and($entered)->toBe(['acme', 'left'])
+        ->and(auth()->check())->toBeFalse();
+
+    // The console embeds a workspace's knowledge base as the system: --tenant still enters it.
+    config(['packstub-agents.knowledge_base' => ['model' => Article::class, 'content' => 'body', 'url' => 'link'] + config('packstub-agents.knowledge_base')]);
+    Article::query()->create(['title' => 'Refund policy', 'body' => 'Paid within 14 days.']);
+    Embeddings::fake(fn ($prompt) => array_map(fn () => [0.9, 0.8], $prompt->inputs));
+
+    artisan('packstub-agents:embed', ['--tenant' => 'acme'])->expectsOutputToContain('Embedded 1 document.')->assertSuccessful();
+    expect($entered)->toBe(['acme', 'left', 'acme', 'left'])->and(Agents::tenant())->toBeNull();
 });
