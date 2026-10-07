@@ -10,6 +10,7 @@ use Packstub\Agents\Commands\MakeAgentCommand;
 use Packstub\Agents\Commands\MakeToolCommand;
 use Packstub\Agents\Commands\RunCommand;
 use Packstub\Agents\Contracts\AgentContext;
+use Packstub\Agents\Contracts\DecisionClassifier;
 use Packstub\Agents\Http\Controllers\EmailInboundController;
 use Packstub\Agents\Http\Controllers\TurnController;
 use Packstub\Agents\Http\Controllers\TurnStreamController;
@@ -18,6 +19,8 @@ use Packstub\Agents\Http\Middleware\AuthenticateEmailWebhook;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentRedactor;
 use Packstub\Agents\Support\Context\LaravelContext;
+use Packstub\Agents\Support\Decisions\AgentDecisionClassifier;
+use Packstub\Agents\Support\Decisions\JevDecisionClassifier;
 use Packstub\Agents\Support\Installed;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
@@ -78,6 +81,14 @@ class AgentsServiceProvider extends PackageServiceProvider
 
         // Who is acting and where: a plain Laravel app's guard and workspace closure; AgentsPlugin rebinds the panel's.
         $this->app->singleton(AgentContext::class, LaravelContext::class);
+
+        // What reads a typed reply the word lists cannot: the driver config names, or a class of the app's; an app may
+        // also bind its own DecisionClassifier.
+        $this->app->bind(DecisionClassifier::class, fn ($app) => $app->make(match ($driver = (string) (config('packstub-agents.decision_classifier.driver') ?: 'agent')) {
+            'agent' => AgentDecisionClassifier::class,
+            'jev' => JevDecisionClassifier::class,
+            default => $driver,
+        }));
     }
 
     public function packageBooted(): void

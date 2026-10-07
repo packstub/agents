@@ -25,7 +25,10 @@
 | `redact.patterns` | `[]` | | your own, label => regex |
 | `redact.replacement` | `[redacted]` | | what a value is replaced with |
 | `decision_classifier.enabled` | `false` | `AGENT_DECISION_CLASSIFIER` | read a reply typed over pending proposals with a small model when the word lists cannot, one decision per proposal; see [Decisions in words](tools.md#decisions-in-words-and-two-proposals-at-once) |
-| `decision_classifier.provider`, `decision_classifier.model` | `null` | `AGENT_DECISION_CLASSIFIER_PROVIDER`, `AGENT_DECISION_CLASSIFIER_MODEL` | where it runs; `null` = the provider of the model the reply was sent with, its cheapest model |
+| `decision_classifier.driver` | `agent` | `AGENT_DECISION_CLASSIFIER_DRIVER` | what reads the reply: `agent` (a side agent on your provider), `jev` (TypeSafe's Jev decision model) or a class implementing `Packstub\Agents\Contracts\DecisionClassifier` |
+| `decision_classifier.provider`, `decision_classifier.model` | `null` | `AGENT_DECISION_CLASSIFIER_PROVIDER`, `AGENT_DECISION_CLASSIFIER_MODEL` | where the `agent` driver runs; `null` = the provider of the model the reply was sent with, its cheapest model |
+| `decision_classifier.min_confidence` | `0.8` | `AGENT_DECISION_CLASSIFIER_MIN_CONFIDENCE` | a decision given with a lower confidence makes the reply a question; only drivers that give one (`jev`) are held to it; `null` applies every decision |
+| `decision_classifier.jev.key`, `.url`, `.model`, `.timeout` | `null`, `https://api.typesafe.ai`, `jev-latest`, `5` | `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, `TYPESAFE_DEFAULT_MODEL` | the `jev` driver: the API key, the base URL, the model (`jev-latest` or a pinned `jev-1.13.0`) and the request timeout in seconds |
 | `classify.enabled` | `false` | `AGENT_CLASSIFY` | classify each chat after an answer (topic, sentiment, resolved); see [Classification](assistant.md#classification) |
 | `classify.topics` | `[]` | | a fixed list of topics to pick from; empty = the model names the topic |
 | `web_search.enabled` | `false` | `AGENT_WEB_SEARCH` | the provider's web search in the chat; see [Web search](tools.md#web-search) |
