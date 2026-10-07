@@ -12,6 +12,7 @@ use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentLimits;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Tests\Fixtures\Abilities;
+use Packstub\Agents\Tests\Fixtures\Models\Team;
 use Packstub\Agents\Tests\Fixtures\WidgetAgent;
 
 use function Pest\Laravel\actingAs;
@@ -92,7 +93,7 @@ it('defers the first turn until the person opens the conversation, checking the 
     expect($deferred->status)->toBe(AgentTurn::DEFERRED)
         ->and($deferred->isOpen())->toBeTrue()
         ->and($deferred->isActive())->toBeFalse()
-        ->and($deferred->input['title'])->toBeTrue()
+        ->and($deferred->input['title'])->toBeFalse() // the app titled it: the provider does not retitle it after the first answer
         ->and($deferred->context)->toBe('widgets/1')
         ->and(AgentTurn::statusLabel(AgentTurn::DEFERRED))->toBe('Deferred');
 
@@ -145,6 +146,7 @@ it('defers the first turn until the person opens the conversation, checking the 
         ->and($started->error)->toBeNull()
         ->and($started->message_id)->toBe($deferred->message_id)
         ->and($started->guard)->toBe('web')
+        ->and(Conversation::query()->findOrFail($conversation)->title)->toBe('September close')
         ->and(ConversationMessage::query()->where('conversation_id', $conversation)->orderBy('id')->pluck('role')->all())->toBe(['user', 'assistant'])
         ->and(ConversationMessage::query()->where('conversation_id', $conversation)->count())->toBe(2)
         ->and($turns->startDeferred($conversation, $user))->toBeNull()
@@ -162,4 +164,79 @@ it('defers the first turn until the person opens the conversation, checking the 
     $waiting = $turns->defer($conversation, $user, ['prompt' => 'And October?'], 'auto', null);
     AgentTurn::query()->whereKey($waiting->id)->update(['created_at' => now()->subDays(3)]);
     expect((new AgentTurn)->prunable()->pluck('id')->all())->not->toContain($waiting->id);
+});
+
+it('lets the provider title a deferred conversation only while it carries the placeholder title', function () {
+    $user = $this->user();
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+
+    // Opened without a title: the question stands in until the first answer, then the provider titles it.
+    $untitled = $store->startConversation($user, 'Let us close September.');
+    expect($turns->defer($untitled, $user, ['prompt' => 'Let us close September.'], 'auto', null)->input['title'])->toBeTrue();
+
+    // Titled by the app: kept.
+    $titled = $store->startConversation($user, 'Let us close September.', 'September close');
+    expect($turns->defer($titled, $user, ['prompt' => 'Let us close September.'], 'auto', null)->input['title'])->toBeFalse();
+
+    // Titled, but the app says the provider may retitle it.
+    $retitle = $store->startConversation($user, 'Let us close September.', 'September close');
+    expect($turns->defer($retitle, $user, ['prompt' => 'Let us close September.', 'title' => true], 'auto', null)->input['title'])->toBeTrue();
+});
+
+it('keeps a deferred turn in its workspace and off while the agent is switched off', function () {
+    $owner = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $globex = $this->team($owner, 'globex');
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+    Agents::tenantModel(Team::class, 'slug');
+
+    // Deferred in Acme.
+    Agents::tenantUsing(fn () => $acme);
+    $conversation = $store->startConversation($owner, 'Let us close September.', 'September close');
+    $deferred = $turns->defer($conversation, $owner, ['prompt' => 'Let us close September.'], 'auto', null);
+    expect($deferred->tenant)->toBe((string) $acme->id);
+
+    actingAs($owner);
+
+    // Opened from Globex: nothing starts, the turn waits for an open in Acme with the reason on it.
+    Agents::tenantUsing(fn () => $globex);
+    $elsewhere = __('This question was asked in another workspace. Open the conversation there to get its answer.');
+    expect($turns->startDeferred($conversation, $owner))->toBeNull()
+        ->and($deferred->fresh())->toMatchArray(['status' => AgentTurn::DEFERRED, 'tenant' => (string) $acme->id, 'error' => $elsewhere])
+        ->and(AgentChat::for($owner, $conversation)->live()['deferred'])->toBe(['id' => $deferred->id, 'error' => $elsewhere]);
+
+    // Opened in Acme with the agent switched off: the same, with that reason.
+    Agents::tenantUsing(fn () => $acme);
+    config(['packstub-agents.enabled' => false]);
+    expect($turns->startDeferred($conversation, $owner))->toBeNull()
+        ->and($deferred->fresh())->toMatchArray(['status' => AgentTurn::DEFERRED, 'error' => __(':name is switched off.', ['name' => 'Ask Widgets'])]);
+    config(['packstub-agents.enabled' => null]);
+
+    // Opened in Acme: it runs, in Acme.
+    WidgetAgent::fake(['September is ready to close.']);
+    $started = $turns->startDeferred($conversation, $owner);
+    expect($started?->status)->toBe(AgentTurn::DONE)
+        ->and($started->error)->toBeNull()
+        ->and($started->tenant)->toBe((string) $acme->id);
+});
+
+it('deletes the open turns with the conversation, so a deferred one does not outlive it', function () {
+    $user = $this->user();
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+    config(['packstub-agents.chat.keep_turns_days' => 1]);
+
+    $conversation = $store->startConversation($user, 'Let us close September.', 'September close');
+    $store->storePostedMessage($conversation, $user, 'The close opens on Monday.');
+    $deferred = $turns->defer($conversation, $user, ['prompt' => 'Let us close September.'], 'auto', null);
+    $posted = AgentTurn::query()->forConversation($conversation)->where('status', AgentTurn::DONE)->sole();
+
+    $store->deleteConversation($conversation);
+
+    expect(Conversation::query()->whereKey($conversation)->exists())->toBeFalse()
+        ->and(AgentTurn::query()->whereKey($deferred->id)->exists())->toBeFalse()
+        ->and(AgentTurn::query()->whereKey($posted->id)->exists())->toBeTrue() // the turn log keeps what ended; pruning takes it after keep_turns_days
+        ->and($turns->deferred($conversation))->toBeNull();
 });

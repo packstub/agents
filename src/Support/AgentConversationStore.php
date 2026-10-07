@@ -1170,6 +1170,9 @@ class AgentConversationStore extends DatabaseConversationStore
         ConversationClassification::query()->where('conversation_id', $conversationId)->delete();
         AgentAnswerVersion::query()->where('conversation_id', $conversationId)->delete();
         AgentPinnedConversation::query()->where('conversation_id', $conversationId)->delete();
+        // A turn that has not ended (deferred for an open that will not come, queued, or in flight) goes with the
+        // conversation; the ended ones stay as the turn log's record.
+        AgentTurn::query()->forConversation($conversationId)->whereIn('status', AgentTurn::OPEN)->delete();
         Conversation::query()->whereKey($conversationId)->delete();
     }
 }
