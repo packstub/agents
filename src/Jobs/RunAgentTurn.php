@@ -93,12 +93,20 @@ class RunAgentTurn implements ShouldQueue
     }
 
     /**
-     * The person is no longer a member of the workspace the turn was asked in (revoked between the request and
-     * the worker): the turn ends failed with that line, without entering the workspace.
+     * The context refused the person (membership revoked between the request and the worker, a panel that no longer
+     * admits them): the turn ends failed with that line, without entering the workspace or signing them in. The
+     * record is written as nobody, outside any workspace — the next turn's person is read by id — so a refusal that
+     * does not depend on the workspace cannot repeat here; and should the context still refuse, the row is marked
+     * failed all the same.
      */
     protected function refuse(AgentTurns $turns, WorkspaceAccessDenied $denied): void
     {
-        $leave = AgentRuntime::enter(['tenant' => null] + $this->runtime);
+        try {
+            $leave = AgentRuntime::enter(['tenant' => null, 'user' => null] + $this->runtime);
+        } catch (Throwable $e) {
+            report($e);
+            $leave = fn () => null;
+        }
 
         try {
             $turn = AgentTurn::query()->find($this->turnId);

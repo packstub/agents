@@ -1,11 +1,13 @@
 <?php
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\PendingStep;
 use Packstub\Agents\Channels\Email\EmailChannel;
 use Packstub\Agents\Channels\Email\InboundEmail;
+use Packstub\Agents\Contracts\AgentContext;
 use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
@@ -18,6 +20,7 @@ use Packstub\Agents\Support\AgentModels;
 use Packstub\Agents\Support\AgentRun;
 use Packstub\Agents\Support\AgentRuntime;
 use Packstub\Agents\Support\AgentTurns;
+use Packstub\Agents\Support\Context\LaravelContext;
 use Packstub\Agents\Tests\Fixtures\Abilities;
 use Packstub\Agents\Tests\Fixtures\Models\Team;
 use Packstub\Agents\Tests\Fixtures\Tools\RetireWidget;
@@ -210,4 +213,61 @@ it('refuses to enter a workspace the person is not a member of, on every path', 
         ->and($entered)->toBe(['acme', 'acme'])
         ->and($ran)->toBe(1)
         ->and(auth()->user())->toBeNull();
+});
+
+it('records a refused turn as failed without entering as the person, whatever the context refuses', function () {
+    $owner = $this->user();
+    $acme = $this->team($owner, 'acme');
+    Agents::tenantUsing(fn () => $acme);
+
+    // A context that refuses the person on every entry, with or without a workspace (a panel that no longer admits
+    // them): the record-keeping entry must not be made as them, or it would be refused again and the turn stuck.
+    $entries = [];
+    $refuseAll = false;
+    app()->instance(AgentContext::class, new class($entries, $refuseAll) extends LaravelContext
+    {
+        public function __construct(public array &$entries, public bool &$refuseAll) {}
+
+        public function enter(array $context): Closure
+        {
+            $this->entries[] = ['tenant' => $context['tenant'] ?? null, 'user' => $context['user'] ?? null];
+
+            if ($this->refuseAll || ($context['user'] ?? null) !== null) {
+                throw WorkspaceAccessDenied::make();
+            }
+
+            return parent::enter($context);
+        }
+    });
+
+    actingAs($owner);
+    Queue::fake();
+    $conversation = app(AgentConversationStore::class)->startConversation($owner, 'Still there?');
+    $first = app(AgentTurns::class)->enqueue($conversation, $owner, ['prompt' => 'Still there?'], null, 'auto', null);
+    $second = app(AgentTurns::class)->enqueue($conversation, $owner, ['prompt' => 'And now?'], null, 'auto', null);
+    auth()->logout();
+    $entries = [];
+
+    // handle(): refused as the person, recorded as nobody and outside the workspace; the next turn is started.
+    Queue::pushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $first->id)->first()->handle(app(AgentTurns::class));
+
+    expect($first->fresh()->status)->toBe(AgentTurn::FAILED)
+        ->and($first->fresh()->error)->toBe('You are not a member of this workspace.')
+        ->and($entries)->toBe([['tenant' => (string) $acme->id, 'user' => $owner->id], ['tenant' => null, 'user' => null]])
+        ->and($second->fresh()->status)->toBe(AgentTurn::PENDING)
+        ->and(auth()->user())->toBeNull();
+
+    // failed() (the worker gave up): the same bookkeeping, and here the context refuses even the record-keeping
+    // entry — the row is still marked failed with the line.
+    $refuseAll = true;
+    $entries = [];
+    Exceptions::fake();
+    Queue::pushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $second->id)->first()->failed(new RuntimeException('lost'));
+
+    expect($second->fresh()->status)->toBe(AgentTurn::FAILED)
+        ->and($second->fresh()->error)->toBe('You are not a member of this workspace.')
+        ->and($entries)->toBe([['tenant' => (string) $acme->id, 'user' => $owner->id], ['tenant' => null, 'user' => null]])
+        ->and(app(AgentTurns::class)->active($conversation))->toBeNull()
+        ->and(auth()->user())->toBeNull();
+    Exceptions::assertReported(WorkspaceAccessDenied::class);
 });

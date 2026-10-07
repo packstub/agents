@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.7.2 — 2026-10-07
+
+### Fixed
+
+- **A refused turn is recorded without entering as the person.** `RunAgentTurn` marks a turn the context refused (`WorkspaceAccessDenied` from `enter()`, in `handle()` and in `failed()`) by entering the runtime as nobody and outside any workspace (`user` and `tenant` null; the next turn's person is read by id), so a refusal that does not depend on the workspace — a panel that no longer admits the person, as Filament Agents 1.14.2 checks — is not thrown again on the record-keeping entry and the turn no longer stays pending. Should the context refuse even that entry, the exception is reported and the row is marked `failed` with the line all the same.
+
 ## 1.7.1 — 2026-10-07
 
 ### Security
