@@ -114,6 +114,26 @@ What reads the reply, in order — the first that decides wins, and none decidin
 2. **The word lists**, in `resources/lang/<locale>/decisions.php` of the package: `yes` (a reply made of nothing but these phrases approves), `no` (a reply that is one of these rejects) and `no_openers` (a reply that opens with one of these words rejects). Every locale's lists apply, whatever the app's locale, since people type in any language. Add a language by publishing `lang/vendor/packstub-agents/<locale>/decisions.php` with the same three keys. A file there for a shipped language replaces that language's lists key by key, so copy the shipped file and add phrases or take out one you would rather not read as a yes; a key your file leaves out keeps the package's list.
 3. **The classifier**, when you switch it on with `AGENT_DECISION_CLASSIFIER=true`: a small structured-output side agent (`Packstub\Agents\Ai\Side\DecisionAgent`) asked only when the lists cannot read a reply of up to 40 words. It decides each proposal on its own, so "Yes, but only Alpha." approves Alpha and rejects Beta, and it is applied only when it approved or rejected every proposal; one it leaves undecided, or a failure, makes the reply a question. It runs in the request that sends the reply, on the provider of the model the reply was sent with (its cheapest model) unless `AGENT_DECISION_CLASSIFIER_PROVIDER` and `AGENT_DECISION_CLASSIFIER_MODEL` say otherwise. The lists come first, so it never approves what they reject.
 
+   `AGENT_DECISION_CLASSIFIER_DRIVER` picks what reads the reply. `agent` (the default) is the side agent above. `jev` is [Jev](https://docs.typesafe.ai/), TypeSafe's decision model: one choice question per proposal (approve, reject or question), answered in about 100 ms with a confidence instead of a reason. It needs `TYPESAFE_API_KEY` (and takes `TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL`, `jev-latest` by default), and it sends the reply and the proposal questions to TypeSafe. Jev reads English best; test it on replies in your other languages before you rely on it. A decision given with a confidence under `AGENT_DECISION_CLASSIFIER_MIN_CONFIDENCE` (0.8) makes the reply a question, so Jev applies only what it is sure of, and an answer of Jev's that comes without a confidence decides nothing; the side agent gives no confidence and is not held to it. With the `jev` driver picked and no key, every reply the lists cannot read is a question and the missing key is reported once a day; Jev never falls back to the side agent. In your tests, with the assistant faked, Jev sends nothing unless you fake the HTTP client too (`Http::fake(['api.typesafe.ai/*' => …])`), so a key in your `.env` never reaches TypeSafe from the suite.
+
+   To read replies another way, implement `Packstub\Agents\Contracts\DecisionClassifier` and name the class as the driver (or bind it to the interface in a service provider). `classify($reply, $proposals, $model)` returns `decisions` (call id => `decision`: `approve`, `reject` or `question`, and an optional `confidence` from 0 to 1) and an optional `reason`. A proposal left out or left as `question`, a confidence under the floor, or an exception makes the reply a question:
+
+   ```php
+   use Packstub\Agents\Contracts\DecisionClassifier;
+
+   class SupportDeskClassifier implements DecisionClassifier
+   {
+       public function classify(string $reply, array $proposals, ?string $model = null): array
+       {
+           $verdicts = app(MyModel::class)->decide($reply, array_column($proposals, 'question'));
+
+           return ['decisions' => collect(array_keys($proposals))->mapWithKeys(fn ($id, $i) => [
+               $id => ['decision' => $verdicts[$i]->label, 'confidence' => $verdicts[$i]->score],
+           ])->all()];
+       }
+   }
+   ```
+
 The turn records what decided it: `AgentTurn::decidedBy()` is `app`, `words` or `classifier` (null for a question, or for decisions made with the buttons), and `decisionReason()` is the classifier's one-sentence reason.
 
 An answer that proposed two changes pauses on both. laravel/ai applies the decisions of one pause together, so a decision on one of them is held: the turn stays queued with what was decided so far, later decisions join it (`AgentTurns::enqueue()` merges them), and it starts once every proposal of that answer has one.

@@ -2,6 +2,17 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+### Added
+
+- **A pluggable decision classifier with a confidence floor, and a Jev driver** (#39). The classifier that reads a typed reply the word lists cannot is now `Packstub\Agents\Contracts\DecisionClassifier`, picked with `AGENT_DECISION_CLASSIFIER_DRIVER`:
+  - `agent` (the default): the `DecisionAgent` side agent, as in 1.9.
+  - `jev`: [Jev](https://docs.typesafe.ai/), TypeSafe's decision model. One choice question per proposal, answered with a confidence and no reason, in about 100 ms. Set `TYPESAFE_API_KEY`; `TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL` (`jev-latest`) are optional. The reply and the proposal questions are sent to TypeSafe.
+  - A class of your own implementing the contract, named as the driver or bound to the interface.
+
+  `AGENT_DECISION_CLASSIFIER_MIN_CONFIDENCE` (0.8): a decision given with a lower confidence makes the reply a question. Drivers that give no confidence (`agent`) are not held to it. The lists still come first, and a proposal left undecided or a failure still makes the reply a question. See [Decisions in words](https://packstub.dev/docs/agents/tools#decisions-in-words-and-two-proposals-at-once).
+
 ## 1.9.0 — 2026-10-07
 
 ### Added
