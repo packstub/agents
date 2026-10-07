@@ -11,6 +11,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use Laravel\Sanctum\Contracts\HasAbilities;
 use Laravel\Sanctum\TransientToken;
 use Packstub\Agents\Events\ToolAuthorized;
+use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
 use ReflectionClass;
 use RuntimeException;
@@ -26,7 +27,9 @@ use Throwable;
  * resources and actions, so the agent can never do more than its user.
  * An agent access token narrows that further: a read token never sees a
  * write tool, and a token scoped to some tools ("tool:{name}" abilities)
- * sees only those. Both checks run on the tool list and again on the call.
+ * sees only those. Both checks run on the tool list and again on the call,
+ * and with a workspace entered the call asks the person's membership again,
+ * so a turn under way stops running tools once the person was removed.
  * Domain errors (RuntimeException from the services) are handed back to the
  * model as tool errors, never thrown at the user.
  */
@@ -42,6 +45,10 @@ abstract class AgentTool extends Tool
 
     public function handle(Request $request): Response
     {
+        if ($refusal = self::membershipRefusal()) {
+            return $this->refused($request, $refusal, 'workspace');
+        }
+
         if (! Agents::allows($this->ability)) {
             return $this->refused($request, self::refusal(), 'role');
         }
@@ -136,6 +143,30 @@ abstract class AgentTool extends Tool
         }
 
         return null;
+    }
+
+    /**
+     * Why the person may no longer act in the workspace the call runs in, or null when they may (or there is no
+     * workspace, or nobody is acting). Membership was checked when the workspace was entered; a turn keeps the person
+     * and the workspace from that moment, so every call asks canAccessTenant() again and the remaining calls of a
+     * turn are refused once the person was removed. Nothing is queried in an app without workspaces.
+     */
+    public static function membershipRefusal(): ?string
+    {
+        $context = Agents::context();
+        $tenant = $context->tenant();
+
+        if (! $tenant) {
+            return null;
+        }
+
+        $user = $context->user();
+
+        if (! $user || $context->canAccessTenant($user, $tenant)) {
+            return null;
+        }
+
+        return WorkspaceAccessDenied::make()->getMessage();
     }
 
     /** The personal access token the request was authenticated with, if any. */

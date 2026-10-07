@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.7.2 — 2026-10-07
+
+### Security
+
+- **Workspace membership is asked again on every tool call** (#31). Membership was checked when a turn entered the workspace, and the worker kept the person and the workspace from that moment, so the tool calls still to come in a turn under way ran after the person was removed from the workspace. `AgentTool::handle()` now re-runs `canAccessTenant()` before the role and token checks, in the chat and over MCP, and refuses the call as a tool error with the existing line ("You are not a member of this workspace."); `ToolAuthorized` fires with `refusedBy: 'workspace'`. Nothing is queried in an app without workspaces, and a member's calls run as before. Reported by Yusuf Kef as a follow-up to GHSA-3v46-4wxg-vjx7 — thank you.
+
 ## 1.7.1 — 2026-10-07
 
 ### Security

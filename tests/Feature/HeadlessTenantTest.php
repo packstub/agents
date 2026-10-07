@@ -1,17 +1,23 @@
 <?php
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Laravel\Ai\PendingStep;
+use Laravel\Ai\Responses\Data\ToolCall;
+use Laravel\Mcp\Request;
 use Packstub\Agents\Channels\Email\EmailChannel;
 use Packstub\Agents\Channels\Email\InboundEmail;
+use Packstub\Agents\Events\ToolAuthorized;
 use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Models\AgentLimit;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentBudget;
+use Packstub\Agents\Support\AgentChat;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentLimits;
 use Packstub\Agents\Support\AgentModels;
@@ -210,4 +216,68 @@ it('refuses to enter a workspace the person is not a member of, on every path', 
         ->and($entered)->toBe(['acme', 'acme'])
         ->and($ran)->toBe(1)
         ->and(auth()->user())->toBeNull();
+});
+
+it('asks membership again on every tool call, so a turn under way stops running tools once the person was removed', function () {
+    $owner = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $other = $this->user();
+    Event::fake([ToolAuthorized::class]);
+
+    // Directly: a member's call runs, the same call after the removal is refused with the line, before run().
+    $leave = AgentRuntime::enter(['tenant' => $acme->getKey(), 'user' => $owner->getKey()]);
+    $whoAmI = app(WhoAmI::class);
+    expect(json_decode((string) $whoAmI->handle(new Request([]))->content(), true)['tenant'])->toBe('acme');
+
+    $acme->update(['owner_id' => $other->getKey()]);
+    $refused = $whoAmI->handle(new Request([]));
+    expect($refused->isError())->toBeTrue()
+        ->and((string) $refused->content())->toBe('You are not a member of this workspace.');
+    Event::assertDispatched(ToolAuthorized::class, fn (ToolAuthorized $e) => $e->tool instanceof WhoAmI && $e->allowed);
+    Event::assertDispatched(ToolAuthorized::class, fn (ToolAuthorized $e) => $e->tool instanceof WhoAmI && ! $e->allowed
+        && $e->refusedBy === 'workspace' && $e->refusal === 'You are not a member of this workspace.');
+    $leave();
+    $acme->update(['owner_id' => $owner->getKey()]);
+
+    // In a turn: the first call runs, the person is removed between the steps, the second call is refused.
+    Agents::tenantUsing(fn () => $acme);
+    actingAs($owner);
+    Agents::useMiddleware([function (PendingStep $step, Closure $next) use ($acme, $other) {
+        if ($step->number === 1) {
+            $acme->update(['owner_id' => $other->getKey()]);
+        }
+
+        return $next($step);
+    }]);
+    WidgetAgent::fake([new ToolCall('c1', 'who-am-i', []), new ToolCall('c2', 'who-am-i', []), 'Done.']);
+
+    $chat = AgentChat::for($owner);
+    $turn = $chat->send('Who am I?');
+    $messages = AgentChat::for($owner, $chat->conversation())->messages();
+    $tools = $messages[1]['tools'];
+
+    expect($turn->status)->toBe(AgentTurn::DONE, (string) $turn->error)
+        ->and($tools)->toHaveCount(2)
+        ->and($tools[0])->toMatchArray(['tool' => 'who-am-i'])
+        ->and(json_decode($tools[0]['result'], true)['tenant'])->toBe('acme')
+        ->and($tools[1])->toMatchArray(['tool' => 'who-am-i'])
+        ->and($tools[1]['result'])->toContain('You are not a member of this workspace.')
+        ->and($tools[1]['result'])->not->toContain('acme');
+});
+
+it('asks nothing about membership without a workspace', function () {
+    $owner = $this->user();
+    actingAs($owner);
+    $queries = 0;
+    DB::listen(function () use (&$queries) {
+        $queries++;
+    });
+
+    expect(Agents::tenant())->toBeNull()
+        ->and(WhoAmI::membershipRefusal())->toBeNull()
+        ->and($queries)->toBe(0);
+
+    $leave = AgentRuntime::enter(['tenant' => null, 'user' => $owner->getKey()]);
+    expect(json_decode((string) app(WhoAmI::class)->handle(new Request([]))->content(), true))->toMatchArray(['user' => $owner->id, 'tenant' => null]);
+    $leave();
 });
