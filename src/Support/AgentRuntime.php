@@ -26,7 +26,12 @@ class AgentRuntime
         return Agents::context()->capture();
     }
 
-    /** @param  array{panel?: ?string, tenant?: int|string|null, user?: int|string|null, locale?: ?string, guard?: ?string}  $context */
+    /**
+     * A `tenant` needs a member to act: the `user` given, else the one signed in. Nobody at all is refused with
+     * WorkspaceAccessDenied — a job that acts for the app itself, not for a person, passes `system => true`.
+     *
+     * @param  array{panel?: ?string, tenant?: int|string|null, user?: int|string|null, locale?: ?string, guard?: ?string, system?: bool}  $context
+     */
     public static function enter(array $context): Closure
     {
         return Agents::context()->enter($context);

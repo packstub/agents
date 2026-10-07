@@ -38,10 +38,13 @@ interface AgentContext
      * Put this runtime into the shape of a captured request: the workspace is
      * set, the person is signed in on the guard, the locale applied. `user`
      * may be an id (retrieved through the guard's provider) or an instance
-     * (used as is — an MCP request passes the token's user). Returns the
-     * closure that restores what was there before.
+     * (used as is — an MCP request passes the token's user). A `tenant` is
+     * entered only for a member: the user given, else the one signed in on the
+     * guard; with nobody at all it is refused (WorkspaceAccessDenied) unless
+     * `system` is true, for a job that acts for the app and not for a person.
+     * Returns the closure that restores what was there before.
      *
-     * @param  array{panel?: ?string, tenant?: int|string|null, user?: int|string|Authenticatable|null, locale?: ?string, guard?: ?string}  $context
+     * @param  array{panel?: ?string, tenant?: int|string|null, user?: int|string|Authenticatable|null, locale?: ?string, guard?: ?string, system?: bool}  $context
      */
     public function enter(array $context): Closure;
 
