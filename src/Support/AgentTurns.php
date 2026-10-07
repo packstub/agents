@@ -269,6 +269,8 @@ class AgentTurns
                         'said' => $turn->prompt(),
                         'decided_by' => $decided['by'],
                         'decision_reason' => $decided['reason'],
+                        'decision_driver' => $decided['driver'] ?? null,
+                        'decision_confidence' => $decided['confidence'] ?? null,
                     ], fn ($v) => $v !== null)]);
                 }
             }

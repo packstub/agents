@@ -95,6 +95,21 @@ class AgentTurn extends Model
         return $this->input['decision_reason'] ?? null;
     }
 
+    /** Which classifier read the reply when it decided: `agent`, `jev`, or the app's class; null otherwise. */
+    public function decisionDriver(): ?string
+    {
+        return $this->input['decision_driver'] ?? null;
+    }
+
+    /**
+     * The lowest confidence among the decisions the classifier applied (0 to 1), to set `min_confidence` by; null
+     * when it did not decide them or gives no confidence (the `agent` driver).
+     */
+    public function decisionConfidence(): ?float
+    {
+        return isset($this->input['decision_confidence']) ? (float) $this->input['decision_confidence'] : null;
+    }
+
     /** Tokens the provider read: the prompt, cached or not. Null until the turn ended with a usage. */
     public function tokensIn(): ?int
     {

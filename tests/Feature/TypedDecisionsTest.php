@@ -97,7 +97,9 @@ it('records that the word lists decided a typed reply', function () {
 
     expect($turn->decisions())->toBe(['c1' => true, 'c2' => true])
         ->and($turn->decidedBy())->toBe('words')
-        ->and($turn->decisionReason())->toBeNull();
+        ->and($turn->decisionReason())->toBeNull()
+        ->and($turn->decisionDriver())->toBeNull()
+        ->and($turn->decisionConfidence())->toBeNull();
 });
 
 it('lets the app decide a typed reply first, one proposal at a time, and falls back to the lists when it does not', function () {
@@ -159,6 +161,8 @@ it('asks the classifier, when switched on, about a reply the lists cannot read, 
     expect($turn->decisions())->toBe(['c1' => true, 'c2' => false])
         ->and($turn->decidedBy())->toBe('classifier')
         ->and($turn->decisionReason())->toBe('Only Alpha is approved.')
+        ->and($turn->decisionDriver())->toBe('agent')
+        ->and($turn->decisionConfidence())->toBeNull() // the side agent gives none
         ->and($turn->input['said'])->toBe('Yes, but only Alpha.')
         ->and($asked)->toHaveCount(1)
         ->and($asked[0])->toContain('- c1: ', '- c2: ', 'Yes, but only Alpha.');
@@ -191,6 +195,8 @@ it('reads a typed reply with the app\'s own classifier, and makes it a question 
     expect($turn->decisions())->toBe(['c1' => true, 'c2' => false])
         ->and($turn->decidedBy())->toBe('classifier')
         ->and($turn->decisionReason())->toBe('Only Alpha.')
+        ->and($turn->decisionDriver())->toBe(FakeDecisionClassifier::class)
+        ->and($turn->decisionConfidence())->toBe(0.91) // the lower of the two
         ->and(FakeDecisionClassifier::$asked)->toHaveCount(1)
         ->and(FakeDecisionClassifier::$asked[0]['reply'])->toBe('Yes, but only Alpha.')
         ->and(array_keys(FakeDecisionClassifier::$asked[0]['proposals']))->toBe(['c1', 'c2']);
@@ -242,7 +248,9 @@ it('reads a typed reply with Jev, one choice question per proposal, and makes it
     $turn = replyOverTwoProposals($user, 'Yes, but only Alpha.');
     expect($turn->decisions())->toBe(['c1' => true, 'c2' => false])
         ->and($turn->decidedBy())->toBe('classifier')
-        ->and($turn->decisionReason())->toBeNull();
+        ->and($turn->decisionReason())->toBeNull()
+        ->and($turn->decisionDriver())->toBe('jev')
+        ->and($turn->decisionConfidence())->toBe(0.9);
 
     Http::assertSent(function (Request $request) {
         $questions = $request['questions'];
