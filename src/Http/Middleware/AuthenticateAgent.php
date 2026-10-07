@@ -19,7 +19,9 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * A token is minted for one workspace (it carries the "tenant:{slug}"
  * ability); using it on another workspace's URL is refused even when the
- * person is a member there.
+ * person is a member there. An app that has workspaces (the context names a
+ * tenant model) but a path without {tenant} is refused outright: no tool may
+ * run with no workspace to scope it.
  */
 class AuthenticateAgent
 {
@@ -34,6 +36,11 @@ class AuthenticateAgent
         $context = Agents::context();
         $route = $request->route();
         $tenant = null;
+
+        if (! $route?->hasParameter('tenant') && $context->tenantModel() !== null) {
+            // The app has workspaces but the MCP path names none: nothing would scope the tools, so fail closed.
+            return response()->json(['error' => 'This app has workspaces: put {tenant} in packstub-agents.mcp.path ("mcp/{tenant}") and use the workspace URL.'], 404);
+        }
 
         if ($route?->hasParameter('tenant')) {
             $slug = (string) $route->parameter('tenant');
