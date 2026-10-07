@@ -313,7 +313,10 @@ it('takes a typed "Yes, go ahead." over pending proposals as their approval, and
     expect($turn->decisions())->toBe(['c1' => false, 'c2' => false]);
 
     foreach (['Yes, go ahead.' => true, 'yes please' => true, 'Go ahead!' => true, 'Ok' => true, 'Sure, confirm it.' => true, 'Da, te rog.' => true, 'Ja, mach das.' => true, 'Sí' => true, 'да' => true,
-        'No' => false, 'no thanks' => false, 'Cancel' => false, 'Nein, lieber nicht.' => false, 'Nu acum' => false, 'нет' => false,
+        'No' => false, 'no thanks' => false, 'Cancel' => false, 'Nein, lieber nicht.' => false, 'Nu acum' => false, 'нет' => false, 'No, leave them.' => false, 'Ok, no, leave it.' => null,
+        'Да нет, не надо.' => false, 'да нет' => false,
+        // A yes-word followed by anything but another yes is not a decision: a condition, a question, an "if", a "not now".
+        'Yes, but only Alpha.' => null, 'Ja, aber nur Alpha.' => null, 'Si lo apruebo, ¿qué cambia?' => null, 'Ok wait, what does this change?' => null, 'Sure, after lunch.' => null, 'Da, dar nu Beta.' => null, 'Да, но только Alpha.' => null,
         'What about Beta?' => null, 'Show me the orders first' => null, 'yes and also retire Gamma and Delta and Epsilon please' => null, '' => null] as $text => $decision) {
         expect(AgentTurns::decisionInText($text))->toBe($decision, $text);
     }

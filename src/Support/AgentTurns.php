@@ -563,25 +563,49 @@ class AgentTurns
             'nein', 'nein danke', 'abbrechen', 'ablehnen', 'nicht', 'lass es', 'lieber nicht',
             'no gracias', 'cancelar', 'rechazar', 'no lo hagas', 'mejor no',
             'nu', 'nu mulțumesc', 'nu multumesc', 'anulează', 'anuleaza', 'respinge', 'nu acum', 'mai bine nu',
-            'нет', 'отмена', 'отклонить', 'не надо', 'не нужно', 'нет спасибо',
+            'нет', 'отмена', 'отклонить', 'не надо', 'не нужно', 'нет спасибо', 'да нет', 'да нет не надо',
         ];
 
         if (in_array($t, $no, true)) {
             return false;
         }
-        if (in_array($t, $yes, true)) {
-            return true;
-        }
 
-        $first = explode(' ', $t)[0];
-        if (in_array($first, ['no', 'nope', 'nein', 'nu', 'нет', 'cancel', 'reject', 'stop', 'never'], true)) {
+        // A reply that opens with a no-word is a no, whatever follows ("No, leave them."): the proposals are rejected,
+        // which the model can undo by proposing again.
+        $words = explode(' ', $t);
+        if (in_array($words[0], ['no', 'nope', 'nein', 'nu', 'нет', 'cancel', 'reject', 'stop', 'never'], true)) {
             return false;
         }
-        if (in_array($first, ['yes', 'yep', 'yeah', 'sure', 'ja', 'si', 'sí', 'da', 'да', 'ok', 'okay', 'approve', 'confirm', 'proceed'], true)) {
-            return true;
+
+        // A yes runs the write, so only a reply made of nothing but yes phrases is one ("Sure, confirm it."). A yes-word
+        // followed by anything else — a condition ("Yes, but only Alpha."), a question ("Ok wait, what does this change?"),
+        // an "if" ("Si lo apruebo, ¿qué cambia?"), a "not now" ("Sure, after lunch.") — is not a decision.
+        return self::madeOf($words, $yes) ? true : null;
+    }
+
+    /**
+     * Whether the words, in order, split into phrases that are all in the list.
+     *
+     * @param  array<int, string>  $words
+     * @param  array<int, string>  $phrases
+     */
+    protected static function madeOf(array $words, array $phrases): bool
+    {
+        $count = count($words);
+        $reachable = [0 => true];
+
+        for ($from = 0; $from < $count; $from++) {
+            if (! isset($reachable[$from])) {
+                continue;
+            }
+            for ($to = $from + 1; $to <= $count; $to++) {
+                if (in_array(implode(' ', array_slice($words, $from, $to - $from)), $phrases, true)) {
+                    $reachable[$to] = true;
+                }
+            }
         }
 
-        return null;
+        return isset($reachable[$count]);
     }
 
     /** What the model reads in place of a proposal's result when the person asked something else instead of deciding on it. */
