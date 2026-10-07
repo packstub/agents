@@ -2,7 +2,7 @@
 
 All notable changes to `packstub/agents` are documented here.
 
-## 1.10.0 — 2026-10-07
+## Unreleased
 
 ### Added
 
