@@ -11,7 +11,8 @@ use Packstub\Agents\Support\AgentUsage;
  * One turn of the chat — a question, a retry or a set of approval decisions —
  * from the moment it is sent until the answer is stored: queued behind
  * another turn, pending on the queue, running (the answer streams into
- * `text`), then done, stopped or failed. The chat page and the poll endpoint
+ * `text`), then done, stopped or failed. A turn stored as deferred waits
+ * for its owner to open the conversation, and is queued at that moment. The chat page and the poll endpoint
  * read it; the RunAgentTurn job writes it. When the turn ends the row is
  * also its record: provider and model, token usage, tools called, wall
  * time and how it ended — the operator's AI turns page and the log line
@@ -20,6 +21,9 @@ use Packstub\Agents\Support\AgentUsage;
 class AgentTurn extends Model
 {
     use MassPrunable;
+
+    /** Stored with its question, started the first time its owner opens the conversation (AgentTurns::startDeferred()). */
+    public const string DEFERRED = 'deferred';
 
     public const string QUEUED = 'queued';
 
@@ -33,8 +37,11 @@ class AgentTurn extends Model
 
     public const string FAILED = 'failed';
 
-    /** The statuses of a turn that has not ended yet. */
-    public const array OPEN = [self::QUEUED, self::PENDING, self::RUNNING];
+    /** The finish reason of the done turn recorded for a message the app posted (AgentConversationStore::storePostedMessage()). */
+    public const string POSTED = 'posted';
+
+    /** The statuses of a turn that has not ended yet (a deferred one waits for its owner to open the conversation). */
+    public const array OPEN = [self::DEFERRED, self::QUEUED, self::PENDING, self::RUNNING];
 
     /** The statuses of a turn that has been handed to the queue (or is running). */
     public const array ACTIVE = [self::PENDING, self::RUNNING];
@@ -131,6 +138,7 @@ class AgentTurn extends Model
     public static function statusLabel(string $status): string
     {
         return match ($status) {
+            self::DEFERRED => __('Deferred'),
             self::QUEUED => __('Queued'),
             self::PENDING => __('Pending'),
             self::RUNNING => __('Running'),

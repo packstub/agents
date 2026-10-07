@@ -7,7 +7,7 @@ An agent that calls a frontier model on every question needs a ceiling. The pack
 | Limit | Scope | Config key / env |
 | --- | --- | --- |
 | Questions per minute | per user | `turns_per_minute` / `AGENT_TURNS_PER_MINUTE` (6) |
-| Answers per day | per workspace | `turns_per_day` / `AGENT_TURNS_PER_DAY` (150) |
+| Answers per day | per workspace (a message [the app posted](assistant.md#a-message-the-app-posts-as-the-assistant) is not one) | `turns_per_day` / `AGENT_TURNS_PER_DAY` (150) |
 | Tokens per day | per workspace, all token kinds | `tokens_per_day` / `AGENT_TOKENS_PER_DAY` (600,000) |
 | Tokens per month | per workspace, all token kinds | `tokens_per_month` / `AGENT_TOKENS_PER_MONTH` (3,000,000) |
 | Tokens per day | per user, inside the workspace | `user_tokens_per_day` / `AGENT_USER_TOKENS_PER_DAY` (100,000) |

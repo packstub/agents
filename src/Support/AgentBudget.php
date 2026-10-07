@@ -64,10 +64,16 @@ class AgentBudget
         RateLimiter::hit(self::minuteKey(), 60);
     }
 
-    /** The turns the provider answered today in this workspace (done, or stopped by the person while it answered). */
+    /**
+     * The turns the provider answered today in this workspace (done, or stopped by the person while it answered);
+     * a message the app posted as the assistant leaves a done turn too, ended "posted", and is not one.
+     */
     public static function turnsToday(): int
     {
-        return self::endedSince(now()->startOfDay())->whereIn('status', [AgentTurn::DONE, AgentTurn::STOPPED])->count();
+        return self::endedSince(now()->startOfDay())
+            ->whereIn('status', [AgentTurn::DONE, AgentTurn::STOPPED])
+            ->where(fn ($q) => $q->whereNull('finish_reason')->orWhere('finish_reason', '!=', AgentTurn::POSTED))
+            ->count();
     }
 
     public static function tokensToday(int|string|null $userId = null): int

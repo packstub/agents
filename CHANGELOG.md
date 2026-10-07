@@ -2,6 +2,13 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.8.0 — 2026-10-07
+
+### Added
+
+- **A message the app posts as the assistant** (#21). `AgentConversationStore::storePostedMessage($conversation, $participant, $text)` stores a digest, a reminder or a notice your app computed as an ordinary assistant row marked `posted` in its meta (`wasPosted($meta)`): rendered like any answer, read by the model as history on the next turn (a window that opens on it gets one line in front that says the assistant posted it, since a provider may require the person to speak first), never counted by `AgentBudget::turnsToday()`, and listed in the turn log as a done `AgentTurn` ended `posted` without provider, usage or cost. `AgentChat::messages()` carries `posted` beside `stopped`; a posted last message is not regenerable and a question a posted message follows is not editable. `startConversation($participant, $prompt, title: '…')` opens a conversation with a title of your own, so one can be opened without a question. See [A message the app posts as the assistant](https://packstub.dev/docs/agents/assistant#a-message-the-app-posts-as-the-assistant).
+- **A first turn that runs when the chat is opened** (#21). `AgentTurns::defer($conversation, $participant, ['prompt' => $question], $model, $context)` records the question now and stores its turn as `deferred` — a new `AgentTurn` status (`AgentTurn::DEFERRED`, labelled "Deferred") that `startNext()`, `active()`, `state()` and `reconcile()` ignore, that is never pruned while it waits and that `deleteConversation()` deletes with the conversation (every turn that has not ended goes with it). A conversation your app titled keeps its title; one opened without a title is titled by the provider after the first answer. `AgentTurns::startDeferred($conversation, $participant)` queues and starts the owner's deferred turn once, under a lock on the conversation (`Cache::lock`: the cache store must support locks), with who is acting and where captured at that moment and `AgentModels::enabled()` and `AgentBudget::refusal()` checked then; it returns the turn that started or `null` (none, another request starting it, the agent switched off, the conversation opened from another workspace than the one the question was asked in, or a refusal — the turn stays deferred with the reason in its `error`). `AgentTurns::deferred($conversation)` reads the waiting turn; `AgentChat::live()` reports it as `deferred` (id and error) and `idle()` is false while one waits, so the question gets no Retry. See [A first turn that runs when the chat is opened](https://packstub.dev/docs/agents/assistant#a-first-turn-that-runs-when-the-chat-is-opened).
+
 ## 1.7.2 — 2026-10-07
 
 ### Security

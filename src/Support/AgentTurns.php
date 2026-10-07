@@ -4,11 +4,13 @@ namespace Packstub\Agents\Support;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Laravel\Ai\Models\Conversation;
+use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Responses\Data\FinishReason;
 use Laravel\Ai\Streaming\Events\StreamEnd;
 use Packstub\Agents\Events\TurnEnded;
@@ -26,7 +28,8 @@ use Packstub\Agents\Models\AgentTurn;
  * RunAgentTurn job claims it, streams the answer into the row and marks how
  * it ended, then starts the next one. The page and the poll endpoint read the
  * rows; a turn whose job went quiet for longer than the job timeout is shown
- * as failed, with a Retry.
+ * as failed, with a Retry. A deferred turn is stored with its question and
+ * waits, outside the line, until the person opens the conversation.
  */
 class AgentTurns
 {
@@ -69,6 +72,136 @@ class AgentTurns
         $this->startNext($conversationId);
 
         return $turn->refresh();
+    }
+
+    /**
+     * Store a question with its turn held back — `deferred` — until the person opens the conversation: an app
+     * that opens a chat for someone (a close to walk through, a summary to discuss) records what it asks now,
+     * and the answer is produced, and billed, when they come to read it (startDeferred()). The question is
+     * recorded at once, so the transcript shows it wherever the conversation is read; $input is enqueue()'s,
+     * with a prompt. The conversation is titled by the provider once the first answer is in, unless an answer
+     * already exists, the app titled it (startConversation(..., title: '…')) or $input['title'] says otherwise.
+     */
+    public function defer(string $conversationId, object $participant, array $input, string $model, ?string $context): AgentTurn
+    {
+        if (! is_string($input['prompt'] ?? null) || trim($input['prompt']) === '') {
+            throw new InvalidArgumentException('A deferred turn needs a prompt.');
+        }
+
+        $runtime = AgentRuntime::capture();
+        $store = app(AgentConversationStore::class);
+
+        $input += ['title' => $this->untitled($conversationId, $input['prompt'])];
+
+        $messageId = $store->storeQuestion(
+            $conversationId,
+            $participant,
+            Agents::agentClass(),
+            $input['prompt'],
+            (array) ($input['attachments'] ?? []),
+            array_filter([
+                'mentions' => ($input['mentions'] ?? []) !== [] ? array_values((array) $input['mentions']) : null,
+                'context' => filled($context) ? $context : null,
+            ], fn ($v) => $v !== null),
+        );
+
+        return AgentTurn::query()->create([
+            'id' => (string) Str::uuid7(),
+            'conversation_id' => $conversationId,
+            'participant_type' => Conversation::participantType($participant),
+            'participant_id' => Conversation::participantKey($participant),
+            'message_id' => $messageId,
+            'status' => AgentTurn::DEFERRED,
+            'input' => $input,
+            'model' => $model,
+            'context' => $context,
+            'panel' => $runtime['panel'],
+            'guard' => $runtime['guard'],
+            'tenant' => $runtime['tenant'] !== null ? (string) $runtime['tenant'] : null,
+            'locale' => $runtime['locale'],
+        ])->refresh();
+    }
+
+    /**
+     * Whether the conversation still carries the placeholder title (the first question, or nothing), so the
+     * provider may title it once the first answer is in. An answer already stored, or a title the app gave
+     * (startConversation(..., title: '…')), keeps the title as it is.
+     */
+    protected function untitled(string $conversationId, string $prompt): bool
+    {
+        if (ConversationMessage::query()->where('conversation_id', $conversationId)->where('role', 'assistant')->exists()) {
+            return false;
+        }
+
+        $title = trim((string) Conversation::query()->whereKey($conversationId)->value('title'));
+
+        return $title === '' || $title === Str::limit($prompt, 50, preserveWords: true);
+    }
+
+    /**
+     * The person opened the conversation: its deferred turn (theirs) is queued and started, once — a lock on the
+     * conversation keeps two tabs from starting it twice (Cache::lock, so the cache store must support locks) —
+     * with who is acting and where captured now, on the surface they opened it from, and the budget checked at
+     * this moment rather than when the question was stored. Returns the turn that started, or null: no deferred
+     * turn, another request starting it, the agent switched off, the conversation opened from another workspace
+     * than the one it was deferred in, or the budget refusing it — then the turn stays deferred for a later open,
+     * with the reason in its `error` (AgentChat::live() reports it as `deferred`, so a surface can show it under
+     * the question).
+     */
+    public function startDeferred(string $conversationId, object $participant): ?AgentTurn
+    {
+        $started = Cache::lock('agent-turns:deferred:'.$conversationId, 10)->get(function () use ($conversationId, $participant): ?AgentTurn {
+            $turn = AgentTurn::query()->forConversation($conversationId)->where('status', AgentTurn::DEFERRED)
+                ->where('participant_type', Conversation::participantType($participant))->where('participant_id', Conversation::participantKey($participant))
+                ->orderBy('id')->first();
+
+            if (! $turn) {
+                return null;
+            }
+
+            $runtime = AgentRuntime::capture();
+            $tenant = $runtime['tenant'] !== null ? (string) $runtime['tenant'] : null;
+
+            // Conversations are not scoped to a workspace: a turn deferred in one runs only when opened there, so
+            // its context and tools are read where the question was asked.
+            if ($turn->tenant !== null && $turn->tenant !== $tenant) {
+                $turn->forceFill(['error' => __('This question was asked in another workspace. Open the conversation there to get its answer.'), 'updated_at' => now()])->save();
+
+                return null;
+            }
+
+            if (($refusal = AgentModels::enabled() ? AgentBudget::refusal($turn->prompt()) : __(':name is switched off.', ['name' => Agents::name()])) !== null) {
+                $turn->forceFill(['error' => $refusal, 'updated_at' => now()])->save();
+
+                return null;
+            }
+
+            $turn->forceFill([
+                'status' => AgentTurn::QUEUED,
+                'error' => null,
+                'panel' => $runtime['panel'],
+                'guard' => $runtime['guard'],
+                'tenant' => $runtime['tenant'] !== null ? (string) $runtime['tenant'] : null,
+                'locale' => $runtime['locale'],
+                'updated_at' => now(),
+            ])->save();
+
+            return $turn;
+        });
+
+        if (! $started instanceof AgentTurn) {
+            return null;
+        }
+
+        $this->startNext($conversationId);
+
+        return $started->refresh();
+    }
+
+    /** The turn waiting for the person to open the conversation, if any (startDeferred() starts it). */
+    public function deferred(string $conversationId): ?AgentTurn
+    {
+        return AgentTurn::query()->forConversation($conversationId)->where('status', AgentTurn::DEFERRED)->orderBy('id')->first();
     }
 
     /**

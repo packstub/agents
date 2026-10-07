@@ -23,6 +23,7 @@ use Laravel\Ai\Storage\DatabaseConversationStore;
 use Packstub\Agents\Ai\Side\ClassifierAgent;
 use Packstub\Agents\Ai\Side\SummaryAgent;
 use Packstub\Agents\Ai\Side\TitleAgent;
+use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Models\AgentAnswerVersion;
 use Packstub\Agents\Models\AgentMessageFeedback;
 use Packstub\Agents\Models\AgentPinnedConversation;
@@ -59,13 +60,16 @@ class AgentConversationStore extends DatabaseConversationStore
     /** At most this many rows are read per load (bounds the first compaction of a very long chat). */
     public const SUMMARY_ROWS_CAP = 400;
 
-    /** Open a conversation for the person, titled after the first question until the answer arrives. */
-    public function startConversation(object $participant, string $prompt): string
+    /**
+     * Open a conversation for the person, titled after the first question until the answer arrives — or with
+     * $title as given, for a conversation the app opens itself (a digest it posts into, a prompt it defers).
+     */
+    public function startConversation(object $participant, string $prompt, ?string $title = null): string
     {
         return $this->storeConversation(
             Conversation::participantType($participant),
             Conversation::participantKey($participant),
-            Str::limit($prompt, 50, preserveWords: true),
+            $title ?? Str::limit($prompt, 50, preserveWords: true),
         );
     }
 
@@ -379,6 +383,68 @@ class AgentConversationStore extends DatabaseConversationStore
     }
 
     /**
+     * Post a message the app wrote as the assistant — a digest, a reminder, a notice — into the conversation: an
+     * ordinary assistant row the next turn reads as history, marked `posted` in meta so a surface can say so and
+     * the budget leaves it out (no provider wrote it, no tokens were spent). The turn log lists it as a done
+     * turn ended `posted`, without provider, usage or cost. Returns the message id.
+     */
+    public function storePostedMessage(string $conversationId, object $participant, string $content, ?string $agentClass = null): string
+    {
+        $messageId = (string) Str::uuid7();
+        $now = now();
+        $runtime = AgentRuntime::capture();
+
+        $this->table($this->messagesTable())->insert($this->messageAttributes(
+            $messageId,
+            $conversationId,
+            Conversation::participantType($participant),
+            Conversation::participantKey($participant),
+            $now,
+            [
+                'agent' => $agentClass ?? Agents::agentClass(),
+                'role' => 'assistant',
+                'content' => $content,
+                'attachments' => '[]',
+                'steps' => json_encode([['content' => $content, 'tool_calls' => [], 'reasoning' => '', 'replay_blocks' => [], 'provider_tool_calls' => []]]),
+                'usage' => '[]',
+                'meta' => json_encode(['posted' => true]),
+                'status' => MessageStatus::Completed->value,
+            ],
+        ));
+
+        AgentTurn::query()->create([
+            'id' => (string) Str::uuid7(),
+            'conversation_id' => $conversationId,
+            'participant_type' => Conversation::participantType($participant),
+            'participant_id' => Conversation::participantKey($participant),
+            'message_id' => $messageId,
+            'status' => AgentTurn::DONE,
+            'input' => ['posted' => true],
+            'text' => $content,
+            'panel' => $runtime['panel'],
+            'guard' => $runtime['guard'],
+            'tenant' => $runtime['tenant'] !== null ? (string) $runtime['tenant'] : null,
+            'locale' => $runtime['locale'],
+            'started_at' => $now,
+            'finished_at' => $now,
+            'duration_ms' => 0,
+            'finish_reason' => AgentTurn::POSTED,
+        ]);
+
+        $this->touchConversation($conversationId, $now);
+
+        return $messageId;
+    }
+
+    /** Whether a stored answer was posted by the app (storePostedMessage), not written by the model. */
+    public static function wasPosted(mixed $meta): bool
+    {
+        $meta = is_string($meta) ? json_decode($meta, true) : $meta;
+
+        return (bool) (is_array($meta) ? ($meta['posted'] ?? false) : false);
+    }
+
+    /**
      * Mark the newest answer of the conversation as ended early by the provider (AgentTurns::cutShortReason),
      * on the row laravel/ai stored for it.
      */
@@ -634,6 +700,12 @@ class AgentConversationStore extends DatabaseConversationStore
             $messages->pop();
         }
 
+        // A window that opens on a message the app posted (nothing summarized before it): a provider may require the
+        // first message to be the person's, so one line says what follows is the assistant's own.
+        if ($summary === null && $messages->isNotEmpty() && ! $this->isUserMessage($messages->first())) {
+            $messages->prepend(new Message('user', __('(This conversation starts with a message you posted.)')));
+        }
+
         if ($summary !== null) {
             $messages->prepend(new AssistantMessage(__('Understood, I will build on that summary.')));
             $messages->prepend(new Message('user', __('Summary of the earlier part of this conversation (those messages are not shown again):')."\n\n".$summary->content));
@@ -800,8 +872,9 @@ class AgentConversationStore extends DatabaseConversationStore
             $kept->push($record);
         }
 
-        // Cut on a turn boundary: the oldest kept row must be a question, or a tool call could lose its result.
-        while ($kept->count() > 1 && $kept->last()->role !== 'user') {
+        // Cut on a turn boundary: the oldest kept row must be a question, or a tool call could lose its result. A
+        // message the app posted has no calls, so a window may open on it (a digest, then the person's reply).
+        while ($kept->count() > 1 && $kept->last()->role !== 'user' && ! self::wasPosted($kept->last()->meta)) {
             $kept->pop();
         }
 
@@ -1097,6 +1170,9 @@ class AgentConversationStore extends DatabaseConversationStore
         ConversationClassification::query()->where('conversation_id', $conversationId)->delete();
         AgentAnswerVersion::query()->where('conversation_id', $conversationId)->delete();
         AgentPinnedConversation::query()->where('conversation_id', $conversationId)->delete();
+        // A turn that has not ended (deferred for an open that will not come, queued, or in flight) goes with the
+        // conversation; the ended ones stay as the turn log's record.
+        AgentTurn::query()->forConversation($conversationId)->whereIn('status', AgentTurn::OPEN)->delete();
         Conversation::query()->whereKey($conversationId)->delete();
     }
 }
