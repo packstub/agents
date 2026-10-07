@@ -24,6 +24,8 @@
 | `redact.detect` | card, ssn, api_key | | the built-in detectors, as a map (`'ssn' => false` switches one off) |
 | `redact.patterns` | `[]` | | your own, label => regex |
 | `redact.replacement` | `[redacted]` | | what a value is replaced with |
+| `decision_classifier.enabled` | `false` | `AGENT_DECISION_CLASSIFIER` | read a reply typed over pending proposals with a small model when the word lists cannot, one decision per proposal; see [Decisions in words](tools.md#decisions-in-words-and-two-proposals-at-once) |
+| `decision_classifier.provider`, `decision_classifier.model` | `null` | `AGENT_DECISION_CLASSIFIER_PROVIDER`, `AGENT_DECISION_CLASSIFIER_MODEL` | where it runs; `null` = the provider of the model the reply was sent with, its cheapest model |
 | `classify.enabled` | `false` | `AGENT_CLASSIFY` | classify each chat after an answer (topic, sentiment, resolved); see [Classification](assistant.md#classification) |
 | `classify.topics` | `[]` | | a fixed list of topics to pick from; empty = the model names the topic |
 | `web_search.enabled` | `false` | `AGENT_WEB_SEARCH` | the provider's web search in the chat; see [Web search](tools.md#web-search) |

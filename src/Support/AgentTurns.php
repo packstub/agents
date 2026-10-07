@@ -239,13 +239,14 @@ class AgentTurns
             $messageId = null;
 
             if ($participant) {
-                // Over a proposal still waiting for a decision, the words decide: "Yes, go ahead." approves every pending
-                // proposal and "No" rejects them, the reply recorded like any question and the turn run as that decision.
-                // Anything else is a question of its own: the proposals are declined first, with a note the model reads.
+                // Over a proposal still waiting for a decision, the reply may decide it (TypedDecisions: the app's rule, the
+                // word lists, the optional classifier): "Yes, go ahead." approves every pending proposal, "No" rejects them,
+                // the reply recorded like any question and the turn run as that decision. Anything else is a question of
+                // its own: the proposals are declined first, with a note the model reads.
                 $pending = $store->pendingCalls($conversationId, $participant);
-                $decision = $pending !== [] ? self::decisionInText($turn->prompt()) : null;
+                $decided = $pending !== [] ? app(TypedDecisions::class)->decide($turn->prompt(), $pending, $turn->model) : null;
 
-                if ($pending !== [] && $decision === null) {
+                if ($pending !== [] && $decided === null) {
                     $store->declinePending($conversationId, $participant, self::supersededResult());
                 }
 
@@ -262,8 +263,13 @@ class AgentTurns
                     ], fn ($v) => $v !== null),
                 );
 
-                if ($decision !== null) {
-                    $turn->forceFill(['input' => ['decisions' => array_fill_keys(array_keys($pending), $decision), 'said' => $turn->prompt()]]);
+                if ($decided !== null) {
+                    $turn->forceFill(['input' => array_filter([
+                        'decisions' => $decided['decisions'],
+                        'said' => $turn->prompt(),
+                        'decided_by' => $decided['by'],
+                        'decision_reason' => $decided['reason'],
+                    ], fn ($v) => $v !== null)]);
                 }
             }
 
@@ -544,68 +550,7 @@ class AgentTurns
      */
     public static function decisionInText(string $text): ?bool
     {
-        $t = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[\p{P}\p{S}]+/u', ' ', Str::lower($text))));
-
-        if ($t === '' || count(explode(' ', $t)) > 6) {
-            return null;
-        }
-
-        $yes = [
-            'yes', 'yes please', 'yes go ahead', 'go ahead', 'ok', 'okay', 'sure', 'yep', 'yeah', 'approve', 'approved', 'approve it', 'confirm', 'confirmed', 'confirm it',
-            'do it', 'please do', 'proceed', 'go for it', 'sounds good', 'yes do it', 'yes confirm', 'yes confirm it', 'yes approve', 'yes please go ahead',
-            'ja', 'ja bitte', 'mach das', 'bestätigen', 'bestätige', 'genehmigen', 'genehmigt', 'weiter', 'los', 'in ordnung',
-            'sí', 'si', 'sí por favor', 'si por favor', 'adelante', 'confirmar', 'confírmalo', 'confirmalo', 'aprobar', 'vale', 'hazlo', 'de acuerdo',
-            'da', 'da te rog', 'confirmă', 'confirma', 'aprobă', 'aproba', 'mergi mai departe', 'fă o', 'fa o', 'de acord',
-            'да', 'давай', 'подтверди', 'подтверждаю', 'одобряю', 'ок', 'хорошо', 'да давай',
-        ];
-        $no = [
-            'no', 'nope', 'no thanks', 'no thank you', 'reject', 'rejected', 'reject it', 'cancel', 'stop', 'never mind', 'do not', 'dont', 'don t', 'leave it', 'not now', 'no do not',
-            'nein', 'nein danke', 'abbrechen', 'ablehnen', 'nicht', 'lass es', 'lieber nicht',
-            'no gracias', 'cancelar', 'rechazar', 'no lo hagas', 'mejor no',
-            'nu', 'nu mulțumesc', 'nu multumesc', 'anulează', 'anuleaza', 'respinge', 'nu acum', 'mai bine nu',
-            'нет', 'отмена', 'отклонить', 'не надо', 'не нужно', 'нет спасибо', 'да нет', 'да нет не надо',
-        ];
-
-        if (in_array($t, $no, true)) {
-            return false;
-        }
-
-        // A reply that opens with a no-word is a no, whatever follows ("No, leave them."): the proposals are rejected,
-        // which the model can undo by proposing again.
-        $words = explode(' ', $t);
-        if (in_array($words[0], ['no', 'nope', 'nein', 'nu', 'нет', 'cancel', 'reject', 'stop', 'never'], true)) {
-            return false;
-        }
-
-        // A yes runs the write, so only a reply made of nothing but yes phrases is one ("Sure, confirm it."). A yes-word
-        // followed by anything else — a condition ("Yes, but only Alpha."), a question ("Ok wait, what does this change?"),
-        // an "if" ("Si lo apruebo, ¿qué cambia?"), a "not now" ("Sure, after lunch.") — is not a decision.
-        return self::madeOf($words, $yes) ? true : null;
-    }
-
-    /**
-     * Whether the words, in order, split into phrases that are all in the list.
-     *
-     * @param  array<int, string>  $words
-     * @param  array<int, string>  $phrases
-     */
-    protected static function madeOf(array $words, array $phrases): bool
-    {
-        $count = count($words);
-        $reachable = [0 => true];
-
-        for ($from = 0; $from < $count; $from++) {
-            if (! isset($reachable[$from])) {
-                continue;
-            }
-            for ($to = $from + 1; $to <= $count; $to++) {
-                if (in_array(implode(' ', array_slice($words, $from, $to - $from)), $phrases, true)) {
-                    $reachable[$to] = true;
-                }
-            }
-        }
-
-        return isset($reachable[$count]);
+        return TypedDecisions::fromWords($text);
     }
 
     /** What the model reads in place of a proposal's result when the person asked something else instead of deciding on it. */

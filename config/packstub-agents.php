@@ -104,6 +104,18 @@ return [
         'fail_open' => true,
     ],
 
+    // Typed decisions: a reply typed while proposals wait for a decision is read with your rule
+    // (Agents::decideTypedUsing()), then the word lists (lang/vendor/packstub-agents/<locale>/decisions.php for your
+    // own language), then — when switched on — this classifier, a small model that may decide each proposal on its
+    // own ("Yes, but only Alpha."). It runs in the request that sends the reply, only when the lists cannot read it,
+    // and never approves what they reject; when it fails or is unsure the reply is a question of its own.
+    'decision_classifier' => [
+        'enabled' => (bool) env('AGENT_DECISION_CLASSIFIER', false),
+        // null = the provider of the model the reply was sent with, its cheapest model.
+        'provider' => env('AGENT_DECISION_CLASSIFIER_PROVIDER'),
+        'model' => env('AGENT_DECISION_CLASSIFIER_MODEL'),
+    ],
+
     // Redaction: secrets and personal data are replaced in what the assistant writes — on the answer while it
     // streams, so a value is never shown and then taken back — and in the tool results stored with it, which the
     // model reads again as history. Each turn that had something replaced logs one `critical` line and fires
