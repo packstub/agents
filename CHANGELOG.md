@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+### Fixed
+
+- **Postgres: chat search ignores case, and a workspace slug no longer crashes a key lookup.** `AgentChat::search()` matched with a plain `like`, which is case-sensitive on Postgres, so "alpha" missed "Alpha"; it now uses `whereLike(..., caseSensitive: false)` (`ilike` there). `LaravelContext::findTenant()` and `findTenantBySlug()` (without a slug attribute) passed a slug such as `acme` to an integer primary key, which Postgres refuses with an error where SQLite and MySQL match nothing, so `agents:run --tenant=acme`, `agents:embed --tenant=acme` and the email channel failed instead of falling back to the slug; a key that cannot be the model's now matches nothing. The suite runs on Postgres and MySQL in CI as well as SQLite.
+
 ## 1.9.0 — 2026-10-07
 
 ### Added
