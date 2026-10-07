@@ -540,7 +540,8 @@ class AgentTurns
     /**
      * A short reply that decides the pending proposals in words: true for "Yes, go ahead." (and its kin in the
      * languages the UI ships), false for "No" / "Cancel", null when the reply is a question of its own. Only a
-     * reply of a few words counts; a leading yes or no decides one that goes on ("No, show me the order first").
+     * reply of a few words counts. A leading no decides one that goes on ("No, show me the order first"); a yes
+     * decides only a reply made of nothing but yes phrases and asking nothing ("Ok?" is a question).
      */
     public static function decisionInText(string $text): ?bool
     {
@@ -579,8 +580,9 @@ class AgentTurns
 
         // A yes runs the write, so only a reply made of nothing but yes phrases is one ("Sure, confirm it."). A yes-word
         // followed by anything else — a condition ("Yes, but only Alpha."), a question ("Ok wait, what does this change?"),
-        // an "if" ("Si lo apruebo, ¿qué cambia?"), a "not now" ("Sure, after lunch.") — is not a decision.
-        return self::madeOf($words, $yes) ? true : null;
+        // an "if" ("Si lo apruebo, ¿qué cambia?"), a "not now" ("Sure, after lunch.") — is not a decision, and neither is
+        // a yes asked back ("Ok?", "¿Confirmar?"): the punctuation is gone from $t, so the question mark is read on $text.
+        return ! preg_match('/[?¿？]/u', $text) && self::madeOf($words, $yes) ? true : null;
     }
 
     /**

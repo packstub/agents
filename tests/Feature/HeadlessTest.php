@@ -317,6 +317,8 @@ it('takes a typed "Yes, go ahead." over pending proposals as their approval, and
         'Да нет, не надо.' => false, 'да нет' => false,
         // A yes-word followed by anything but another yes is not a decision: a condition, a question, an "if", a "not now".
         'Yes, but only Alpha.' => null, 'Ja, aber nur Alpha.' => null, 'Si lo apruebo, ¿qué cambia?' => null, 'Ok wait, what does this change?' => null, 'Sure, after lunch.' => null, 'Da, dar nu Beta.' => null, 'Да, но только Alpha.' => null,
+        // A yes asked back is a question.
+        'Ok?' => null, 'Proceed?' => null, 'Sure, confirm it?' => null, '¿Confirmar?' => null, 'Да?' => null, 'No?' => false,
         'What about Beta?' => null, 'Show me the orders first' => null, 'yes and also retire Gamma and Delta and Epsilon please' => null, '' => null] as $text => $decision) {
         expect(AgentTurns::decisionInText($text))->toBe($decision, $text);
     }
