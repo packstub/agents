@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.7.2 — 2026-10-07
+
+### Security
+
+- **A record summary by id runs the resource's view check.** `PageContext::record()` resolved any `resource/id` through the resource's query and handed back `agentSummary()` without asking whether the person may open that record, so a mention in a question (`@orders/12`), a page context (`AgentChat::for(..., context:)`, `AgentRun::context()`), the MCP `record://{resource}/{id}` resource and the `ask-about-record` prompt showed a record the resource's own tools would refuse. Every one of them now goes through the resource's `canView($record)` (a Filament resource has it; a plain class may define it), else `canViewAny()`, before the summary is produced: a mention the person may not view is dropped from the question and its chips, a page context stays empty, `record://` and the prompt answer "No :resource record matches :id, or it cannot be viewed." A resource with neither method keeps answering, as before; a headless resource's query is expected to be scoped to the workspace (see the docs). Found by the audit after the 1.7.1 membership fix (#26).
+
 ## 1.7.1 — 2026-10-07
 
 ### Security
