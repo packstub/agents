@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.7.2 — 2026-10-07
+
+### Fixed
+
+- **A workspace key that matches nothing refuses the turn instead of running it without a workspace** (#25). Once `Agents::tenantModel()` names a workspace model, `LaravelContext::enter()` given a key that `findTenant()` cannot resolve — the workspace was deleted between the question and the worker — throws `Packstub\Agents\Exceptions\WorkspaceNotFound` ("This workspace no longer exists."), a `WorkspaceAccessDenied`, so every path refuses it the same way: a queued turn ends `failed` with that line, `AgentRun` lets it through, and the email channel drops a mail whose `tenant` names an unknown slug or key, as it drops one for a workspace the sender is not in. Apps without a workspace model keep today's behaviour.
+
 ## 1.7.1 — 2026-10-07
 
 ### Security
