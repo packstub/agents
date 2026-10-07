@@ -56,6 +56,7 @@
     "Thinking…": "Se gândește…",
     "This access token does not include :tool.": "Acest token de acces nu include :tool.",
     "This access token is read-only.": "Acest token este doar-citire.",
+    "This workspace no longer exists.": "Acest spațiu de lucru nu mai există.",
     "This workspace reached today's limit of :n answers. It resets at midnight.": "Acest spațiu de lucru a atins limita de :n răspunsuri pe zi. Se resetează la miezul nopții.",
     "This workspace used its AI budget for the month.": "Acest spațiu și-a consumat bugetul AI pe luna aceasta.",
     "This workspace used its AI budget for today. It resets at midnight.": "Acest spațiu și-a consumat bugetul AI pe ziua de azi. Se resetează la miezul nopții.",

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Packstub\Agents\Contracts\AgentContext;
 use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
+use Packstub\Agents\Exceptions\WorkspaceNotFound;
 use Packstub\Agents\Facades\Agents;
 
 /**
@@ -92,9 +93,15 @@ class LaravelContext implements AgentContext
         // Whoever acts inside the workspace: the person given, else the one already signed in on the guard.
         // Nobody at all is not a membership we checked: refused, unless the app says the system itself acts.
         $actor = $user ?? $previousUser;
-        $allowed = ! $tenant || ($actor ? $this->canAccessTenant($actor, $tenant) : (bool) ($context['system'] ?? false));
 
-        if (! $allowed) {
+        $refused = match (true) {
+            $key !== null && ! $tenant && $this->tenantModel() !== null => WorkspaceNotFound::make(),
+            $tenant && $actor && ! $this->canAccessTenant($actor, $tenant) => WorkspaceAccessDenied::make(),
+            $tenant && ! $actor && ! ($context['system'] ?? false) => WorkspaceAccessDenied::make(),
+            default => null,
+        };
+
+        if ($refused) {
             // Fail closed before anything is entered: undo what was set so far and refuse.
             if ($userChanged) {
                 $previousUser ? $guard->setUser($previousUser) : $guard->forgetUser();
@@ -102,7 +109,7 @@ class LaravelContext implements AgentContext
 
             Auth::shouldUse($previousGuard);
 
-            throw WorkspaceAccessDenied::make();
+            throw $refused;
         }
 
         if ($tenant) {
