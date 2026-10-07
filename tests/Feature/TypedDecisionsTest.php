@@ -12,6 +12,7 @@ use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Support\TypedDecisions;
 use Packstub\Agents\Tests\Fixtures\Abilities;
+use Packstub\Agents\Tests\Fixtures\Tools\RetireWidget;
 use Packstub\Agents\Tests\Fixtures\WidgetAgent;
 
 use function Pest\Laravel\actingAs;
@@ -57,9 +58,29 @@ it('reads the word lists of every locale from the lang files, a language the app
             ->and(AgentTurns::decisionInText('Non, pas Beta.'))->toBeFalse()
             ->and(AgentTurns::decisionInText('Oui, mais seulement Alpha.'))->toBeNull()
             ->and(AgentTurns::decisionInText('Yes, go ahead.'))->toBeTrue(); // the shipped lists still apply
+
+        // A shipped language's file replaces its lists key by key, so a phrase can be taken out; a key left out stays.
+        File::ensureDirectoryExists(lang_path('vendor/packstub-agents/en'));
+        File::put(lang_path('vendor/packstub-agents/en/decisions.php'), "<?php\n\nreturn ['yes' => ['yes', 'yes please']];\n");
+
+        expect(AgentTurns::decisionInText('Sure'))->toBeNull()
+            ->and(AgentTurns::decisionInText('Go ahead'))->toBeNull()
+            ->and(AgentTurns::decisionInText('Yes please'))->toBeTrue()
+            ->and(AgentTurns::decisionInText('Cancel'))->toBeFalse()
+            ->and(AgentTurns::decisionInText('Ja'))->toBeTrue();
     } finally {
         File::deleteDirectory(lang_path('vendor/packstub-agents'));
     }
+});
+
+it('reads a plain yes with the lists without building the proposals, so a write tool that cannot be resolved does not stop it', function () {
+    $user = $this->user();
+    actingAs($user);
+
+    Agents::useTools([RetireWidget::class]);
+    app()->bind(RetireWidget::class, fn () => throw new RuntimeException('Not resolvable here.'));
+
+    expect(replyOverTwoProposals($user, 'Yes, go ahead.')->decisions())->toBe(['c1' => true, 'c2' => true]);
 });
 
 it('records that the word lists decided a typed reply', function () {

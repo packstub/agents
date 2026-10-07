@@ -87,8 +87,6 @@ class AgentsServiceProvider extends PackageServiceProvider
         $this->app->alias(ConversationStore::class, AgentConversationStore::class);
 
         $this->loadJsonTranslationsFrom(__DIR__.'/../resources/lang');
-        // The word lists a typed decision is read with (resources/lang/<locale>/decisions.php, TypedDecisions).
-        $this->loadTranslationsFrom(__DIR__.'/../resources/lang', 'packstub-agents');
 
         // The routes wait for the whole app: what the app registers through the facade in its own boot(), and — with
         // packstub/filament-agents — the panels, whose plugin binds the context and mirrors the server class into config

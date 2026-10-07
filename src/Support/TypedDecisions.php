@@ -2,6 +2,7 @@
 
 namespace Packstub\Agents\Support;
 
+use Closure;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Laravel\Ai\Ai;
@@ -13,8 +14,9 @@ use Throwable;
  * What a reply typed over pending proposals decides, asked in order:
  *
  * 1. the app's own rule (Agents::decideTypedUsing()), when it has one and it decides;
- * 2. the word lists (resources/lang/<locale>/decisions.php, every locale's, an app's published ones too): a reply
- *    made of nothing but yes phrases approves every proposal, one that is or opens with a no rejects them;
+ * 2. the word lists (resources/lang/<locale>/decisions.php, every locale's; a list in the app's
+ *    lang/vendor/packstub-agents/<locale>/decisions.php replaces the package's): a reply made of nothing but yes
+ *    phrases approves every proposal, one that is or opens with a no rejects them;
  * 3. the DecisionAgent side agent (config `decision_classifier`, off by default), for a reply the lists cannot read,
  *    which may decide each proposal on its own ("Yes, but only Alpha.").
  *
@@ -46,9 +48,13 @@ class TypedDecisions
             return null;
         }
 
-        $proposals = $this->proposals($pending);
+        // Built only for the rule and the classifier: it resolves every write tool, which a plain "yes" never needs.
+        $built = null;
+        $build = function () use ($pending, &$built): array {
+            return $built ??= $this->proposals($pending);
+        };
 
-        if (($decided = $this->byApp($text, $proposals)) !== null) {
+        if (($decided = $this->byApp($text, $build)) !== null) {
             return ['decisions' => $decided, 'by' => self::BY_APP, 'reason' => null];
         }
 
@@ -56,7 +62,7 @@ class TypedDecisions
             return ['decisions' => array_fill_keys(array_keys($pending), $decision), 'by' => self::BY_WORDS, 'reason' => null];
         }
 
-        return $this->byClassifier($text, $proposals, $model);
+        return $this->byClassifier($text, $build, $model);
     }
 
     /** What the word lists alone make of a reply: true, false, or null when it is not a decision they can read. */
@@ -89,7 +95,9 @@ class TypedDecisions
     }
 
     /**
-     * The yes, no and no-opener lists of every locale the package ships and the app published, merged.
+     * The yes, no and no-opener lists of every locale the package ships and the app published, merged. A list the
+     * app's file sets replaces the package's for that locale whole, so a phrase can be taken out as well as added
+     * (the translator would merge the two by index); a key the app's file leaves out keeps the package's list.
      *
      * @return array{yes: list<string>, no: list<string>, no_openers: list<string>}
      */
@@ -98,10 +106,14 @@ class TypedDecisions
         $lists = ['yes' => [], 'no' => [], 'no_openers' => []];
 
         foreach (self::locales() as $locale) {
-            $lines = trans('packstub-agents::decisions', [], $locale);
+            $lines = [];
 
-            if (! is_array($lines)) {
-                continue;
+            foreach (self::paths() as $path) {
+                $file = "{$path}/{$locale}/decisions.php";
+
+                if (File::exists($file) && is_array($read = File::getRequire($file))) {
+                    $lines = array_replace($lines, $read);
+                }
             }
 
             foreach (array_keys($lists) as $key) {
@@ -125,7 +137,7 @@ class TypedDecisions
     {
         $locales = [];
 
-        foreach ([__DIR__.'/../../resources/lang', lang_path('vendor/packstub-agents')] as $path) {
+        foreach (self::paths() as $path) {
             foreach (File::isDirectory($path) ? File::directories($path) : [] as $dir) {
                 if (File::exists($dir.'/decisions.php')) {
                     $locales[] = basename($dir);
@@ -134,6 +146,16 @@ class TypedDecisions
         }
 
         return array_values(array_unique($locales));
+    }
+
+    /**
+     * Where the decisions files live, the app's last.
+     *
+     * @return list<string>
+     */
+    protected static function paths(): array
+    {
+        return [__DIR__.'/../../resources/lang', lang_path('vendor/packstub-agents')];
     }
 
     /** Lowercase, punctuation and symbols out, one space between words: how a reply and a list entry are compared. */
@@ -173,16 +195,17 @@ class TypedDecisions
      * or gives anything but true, is rejected), null leaves the reply to the lists. One that throws is reported and
      * left to the lists too.
      *
-     * @param  array<string, array{name: string, arguments: array<string, mixed>, question: string}>  $proposals
+     * @param  Closure(): array<string, array{name: string, arguments: array<string, mixed>, question: string}>  $build  the pending calls with their questions
      * @return array<string, bool>|null
      */
-    protected function byApp(string $text, array $proposals): ?array
+    protected function byApp(string $text, Closure $build): ?array
     {
         if (! ($callback = Agents::typedDecider())) {
             return null;
         }
 
         try {
+            $proposals = $build();
             $decided = $callback($text, $proposals);
         } catch (Throwable $e) {
             report($e);
@@ -201,10 +224,10 @@ class TypedDecisions
      * The classifier's reading, applied only when it decided every proposal: one it left undecided, or a failure,
      * makes the reply a question.
      *
-     * @param  array<string, array{name: string, arguments: array<string, mixed>, question: string}>  $proposals
+     * @param  Closure(): array<string, array{name: string, arguments: array<string, mixed>, question: string}>  $build  the pending calls with their questions
      * @return array{decisions: array<string, bool>, by: string, reason: ?string}|null
      */
-    protected function byClassifier(string $text, array $proposals, ?string $model): ?array
+    protected function byClassifier(string $text, Closure $build, ?string $model): ?array
     {
         $words = self::normalize($text);
 
@@ -218,6 +241,7 @@ class TypedDecisions
         }
 
         try {
+            $proposals = $build();
             $provider = Ai::textProvider(config('packstub-agents.decision_classifier.provider') ?: AgentModels::resolve($model)['provider']);
             $verdict = DecisionAgent::run(DecisionAgent::input(Str::limit($text, 1000), $proposals), $provider, config('packstub-agents.decision_classifier.model') ?: null);
         } catch (Throwable $e) {
