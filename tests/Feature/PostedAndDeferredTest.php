@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Laravel\Ai\Models\Conversation;
 use Laravel\Ai\Models\ConversationMessage;
 use Packstub\Agents\Facades\Agents;
@@ -239,4 +240,28 @@ it('deletes the open turns with the conversation, so a deferred one does not out
         ->and(AgentTurn::query()->whereKey($deferred->id)->exists())->toBeFalse()
         ->and(AgentTurn::query()->whereKey($posted->id)->exists())->toBeTrue() // the turn log keeps what ended; pruning takes it after keep_turns_days
         ->and($turns->deferred($conversation))->toBeNull();
+});
+
+it('does not count a posted message against the day\'s answers, which are counted from agent_turns', function () {
+    $user = $this->user();
+    actingAs($user);
+    config()->set('packstub-agents.limits.turns_per_day', 2);
+    $store = app(AgentConversationStore::class);
+    $conversation = $store->startConversation($user, 'Digest', 'Digest');
+
+    // Two posts and one answer today: one answer counted, room for one more.
+    $store->storePostedMessage($conversation, $user, 'Morning digest.');
+    $store->storePostedMessage($conversation, $user, 'Afternoon digest.');
+    AgentTurn::query()->create([
+        'id' => (string) Str::uuid7(), 'conversation_id' => $conversation, 'participant_type' => $user->getMorphClass(), 'participant_id' => $user->id,
+        'status' => AgentTurn::DONE, 'input' => ['prompt' => 'Earlier'], 'usage' => ['input_tokens' => 10, 'output_tokens' => 10], 'finished_at' => now(),
+    ]);
+
+    expect(AgentTurn::query()->forConversation($conversation)->where('finish_reason', AgentTurn::POSTED)->count())->toBe(2)
+        ->and(AgentBudget::turnsToday())->toBe(1)
+        ->and(AgentBudget::refusal('hi'))->toBeNull();
+
+    // A third post still does not spend the day's second answer.
+    $store->storePostedMessage($conversation, $user, 'Evening digest.');
+    expect(AgentBudget::turnsToday())->toBe(1)->and(AgentBudget::refusal('hi'))->toBeNull();
 });
