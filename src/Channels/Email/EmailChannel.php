@@ -46,6 +46,11 @@ class EmailChannel
         if ($mail->tenant !== null) {
             $context = Agents::context();
             $tenant = $context->findTenantBySlug($mail->tenant) ?? $context->findTenant($mail->tenant);
+
+            if (! $tenant && $context->tenantModel() !== null) {
+                // The mail names a workspace that does not exist: dropped, not answered without one.
+                return null;
+            }
         }
 
         $conversation = self::conversationOf($mail, $participant);

@@ -7,6 +7,7 @@ use Laravel\Ai\PendingStep;
 use Packstub\Agents\Channels\Email\EmailChannel;
 use Packstub\Agents\Channels\Email\InboundEmail;
 use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
+use Packstub\Agents\Exceptions\WorkspaceNotFound;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Models\AgentLimit;
@@ -209,5 +210,64 @@ it('refuses to enter a workspace the person is not a member of, on every path', 
         ->and($turn->fresh()->error)->toBe('You are not a member of this workspace.')
         ->and($entered)->toBe(['acme', 'acme'])
         ->and($ran)->toBe(1)
+        ->and(auth()->user())->toBeNull();
+});
+
+it('refuses a workspace key that matches nothing instead of running without a workspace, on every path', function () {
+    Mail::fake();
+    config()->set('packstub-agents.email.enabled', true);
+    config()->set('packstub-agents.email.secret', 'hook-secret');
+    $owner = $this->user(['email' => 'ada@example.com']);
+    $acme = $this->team($owner, 'acme');
+    $entered = [];
+    Agents::enteringTenant(function (Model $tenant) use (&$entered): ?Closure {
+        $entered[] = $tenant->slug;
+
+        return null;
+    });
+    $ran = 0;
+    Agents::useMiddleware([function (PendingStep $step, Closure $next) use (&$ran) {
+        $ran++;
+
+        return $next($step);
+    }]);
+    WidgetAgent::fake(['Two widgets are live.']);
+
+    // The context: a key of a workspace that is gone is refused, and refused as a WorkspaceAccessDenied too.
+    actingAs($owner);
+    expect(fn () => AgentRuntime::enter(['tenant' => 999]))
+        ->toThrow(WorkspaceNotFound::class, 'This workspace no longer exists.')
+        ->and(fn () => AgentRuntime::enter(['tenant' => 999, 'user' => $owner->getAuthIdentifier()]))
+        ->toThrow(WorkspaceAccessDenied::class)
+        ->and($entered)->toBe([])
+        ->and(auth()->user()?->is($owner))->toBeTrue() // still signed in, as before the call
+        ->and(Agents::tenant())->toBeNull();
+    auth()->logout();
+
+    // The email channel: an unknown slug (or key) is dropped like a workspace the sender is not in — no reply.
+    expect(EmailChannel::receive(new InboundEmail(from: 'ada@example.com', subject: 'Widgets', text: 'How many?', messageId: '<m1@test>', tenant: 'initech')))->toBeNull()
+        ->and(EmailChannel::receive(new InboundEmail(from: 'ada@example.com', subject: 'Widgets', text: 'How many?', messageId: '<m2@test>', tenant: '999')))->toBeNull()
+        ->and(AgentTurn::query()->count())->toBe(0)
+        ->and($ran)->toBe(0)
+        ->and($entered)->toBe([]);
+    postJson('/agents/email', ['from' => 'ada@example.com', 'subject' => 'Widgets', 'text' => 'How many?', 'tenant' => 'initech'], ['X-Agent-Secret' => 'hook-secret'])->assertOk()->assertJson(['answered' => false]);
+    Mail::assertNothingSent();
+
+    // The worker: the workspace was deleted between the question and the turn — the turn fails with the line, nothing runs.
+    Agents::tenantUsing(fn () => $acme);
+    actingAs($owner);
+    Queue::fake();
+    $conversation = app(AgentConversationStore::class)->startConversation($owner, 'Still there?');
+    $turn = app(AgentTurns::class)->enqueue($conversation, $owner, ['prompt' => 'Still there?'], null, 'auto', null);
+    auth()->logout();
+    Agents::tenantUsing(fn () => null);
+    $acme->delete();
+
+    Queue::pushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $turn->id)->first()->handle(app(AgentTurns::class));
+
+    expect($turn->fresh()->status)->toBe(AgentTurn::FAILED)
+        ->and($turn->fresh()->error)->toBe('This workspace no longer exists.')
+        ->and($entered)->toBe([])
+        ->and($ran)->toBe(0)
         ->and(auth()->user())->toBeNull();
 });
