@@ -24,19 +24,21 @@ it('answers a question', function () {
 
 `Assistant::fake([...])` comes from laravel/ai's `Promptable` trait: each entry is one answer, in order.
 
-The side agents next to the assistant (the chat's title, the rolling summary, the classification, the prompt guard) are laravel/ai agents too, faked the same way, each with the fields it answers with:
+The side agents next to the assistant (the chat's title, the rolling summary, the classification, the prompt guard, the typed-decision classifier) are laravel/ai agents too, faked the same way, each with the fields it answers with:
 
 ```php
 use Packstub\Agents\Ai\Side\ClassifierAgent;
+use Packstub\Agents\Ai\Side\DecisionAgent;
 use Packstub\Agents\Ai\Side\GuardAgent;
 use Packstub\Agents\Ai\Side\TitleAgent;
 
 TitleAgent::fake([['title' => 'Orders waiting for a call']]);
 ClassifierAgent::fake([['topic' => 'orders', 'sentiment' => 'neutral', 'resolved' => true]]);
 GuardAgent::fake([['category' => 'injection', 'reason' => 'It tries to replace the instructions.']]);
+DecisionAgent::fake([['decisions' => [['id' => 'c1', 'decision' => 'approve'], ['id' => 'c2', 'decision' => 'reject']], 'reason' => 'Only the first.']]);
 ```
 
-With the assistant faked and a side agent not, the title, the classification and the guard are skipped — a new chat keeps its first question as the title — so every entry of `Assistant::fake([...])` is an answer of the assistant. The summary is the exception: it is written by whatever answers next, so give `SummaryAgent::fake([['summary' => '…']])` its own when a test compresses a chat.
+With the assistant faked and a side agent not, the title, the classification, the guard and the decision classifier are skipped — a new chat keeps its first question as the title — so every entry of `Assistant::fake([...])` is an answer of the assistant. The summary is the exception: it is written by whatever answers next, so give `SummaryAgent::fake([['summary' => '…']])` its own when a test compresses a chat.
 
 A turn runs in a queued job. On the `sync` queue driver (the default in a test environment), or with `chat.driver` set to `sync`, it runs inside `enqueue()`, so the answer is stored when the call returns, as above. To test what happens while the job waits — the poll endpoint attaching to a running turn, Stop, the follow-ups waiting per conversation — fake the queue and run the pushed job yourself:
 

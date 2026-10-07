@@ -80,6 +80,21 @@ class AgentTurn extends Model
         return $this->input['decisions'] ?? null;
     }
 
+    /**
+     * What read a typed reply as this turn's decisions: `app` (Agents::decideTypedUsing()), `words` (the lists) or
+     * `classifier` (config `decision_classifier`); null for a question, or decisions made with the buttons.
+     */
+    public function decidedBy(): ?string
+    {
+        return $this->input['decided_by'] ?? null;
+    }
+
+    /** The classifier's one-sentence reason for the decisions it read; null when it did not decide them. */
+    public function decisionReason(): ?string
+    {
+        return $this->input['decision_reason'] ?? null;
+    }
+
     /** Tokens the provider read: the prompt, cached or not. Null until the turn ended with a usage. */
     public function tokensIn(): ?int
     {

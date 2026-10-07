@@ -64,6 +64,8 @@ class AgentsManager
     /** @var list<Closure> */
     protected array $toolResultMaps = [];
 
+    protected ?Closure $typedDecider = null;
+
     protected ?Closure $tenantResolver = null;
 
     protected ?Closure $tenantEnter = null;
@@ -302,6 +304,22 @@ class AgentsManager
     public function mapToolResultsUsing(?Closure $callback): void
     {
         $this->toolResultMaps = $callback ? [...$this->toolResultMaps, $callback] : [];
+    }
+
+    /**
+     * Read a reply typed while proposals wait for a decision with your own rule, before the word lists:
+     * fn (string $text, array $proposals): bool|array|null, where $proposals is call id => name, arguments and
+     * question. True or false decides every proposal; an array of call id => bool decides them one by one (a call
+     * left out is rejected); null leaves the reply to the lists and the classifier. Null forgets the rule.
+     */
+    public function decideTypedUsing(?Closure $callback): void
+    {
+        $this->typedDecider = $callback;
+    }
+
+    public function typedDecider(): ?Closure
+    {
+        return $this->typedDecider;
     }
 
     /** @return list<Closure> */

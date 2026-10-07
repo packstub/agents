@@ -2,6 +2,17 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.9.0 — 2026-10-07
+
+### Added
+
+- **Typed decisions you can extend, and a classifier for the replies the word lists cannot read** (#37). A reply typed while proposals wait for a decision is now read by up to three things in order, the first that decides winning:
+  - **Your rule**: `Agents::decideTypedUsing(fn (string $text, array $proposals): bool|array|null)` decides every proposal (`true`, `false`), each on its own (call id => bool; a call left out is rejected), or leaves the reply to the lists (`null`; a rule that throws is reported and does the same).
+  - **The word lists**, moved from code to `resources/lang/<locale>/decisions.php` (`yes`, `no`, `no_openers`) for English, German, Spanish, Romanian and Russian. Every locale's lists apply, whatever the app's locale; publish `lang/vendor/packstub-agents/<locale>/decisions.php` to add a language, or to replace a shipped language's lists key by key (a phrase can be taken out as well as added). `AgentTurns::decisionInText()` keeps its signature and reads them.
+  - **The decision classifier**, off until `AGENT_DECISION_CLASSIFIER=true`: a structured-output side agent (`Packstub\Agents\Ai\Side\DecisionAgent`, faked on its own in tests) asked only when the lists cannot read a reply of up to 40 words, which decides each proposal on its own ("Yes, but only Alpha." approves Alpha and rejects Beta). It is applied only when it approved or rejected every proposal; one left undecided, or a failure, makes the reply a question, as before. It runs in the request that sends the reply, on the provider of the model it was sent with (its cheapest model) unless `AGENT_DECISION_CLASSIFIER_PROVIDER` / `AGENT_DECISION_CLASSIFIER_MODEL` say otherwise, and never approves what the lists reject.
+
+  The turn records what decided it: `AgentTurn::decidedBy()` (`app`, `words`, `classifier`; null for a question or for the buttons) and `decisionReason()` (the classifier's reason). See [Decisions in words](https://packstub.dev/docs/agents/tools#decisions-in-words-and-two-proposals-at-once).
+
 ## 1.8.1 — 2026-10-07
 
 ### Fixed
