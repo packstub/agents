@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## 1.8.1 — 2026-10-07
+
+### Fixed
+
+- **A typed reply approves the pending writes only when it is nothing but a yes.** `AgentTurns::decisionInText()` took any short reply that opened with a yes-word as the approval of every pending proposal, so "Yes, but only Alpha.", "Ok wait, what does this change?", "Sure, after lunch." and the Spanish "Si lo apruebo, ¿qué cambia?" (*si*, if) ran the writes. A reply is now a yes only when every word of it belongs to a yes phrase ("Sure, confirm it."); one that opens with a yes-word and goes on with anything else, or asks it back ("Ok?", "¿Confirmar?"), is a question of its own, so the proposals are declined with the usual note and the model can propose again. The Russian "Да нет, не надо." is read as the no it is. A reply that opens with a no-word still rejects, as before.
+
 ## 1.8.0 — 2026-10-07
 
 ### Added
