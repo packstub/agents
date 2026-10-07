@@ -81,12 +81,36 @@ class PageContext
     }
 
     /**
-     * The record behind a reference: a Filament resource resolves it as a route binding (its own query, soft
-     * deletes and all); a headless AgentResource through its query, or its model's.
+     * The record behind a reference, only when the person may view it: a Filament resource resolves it as a route
+     * binding (its own query, soft deletes and all); a headless AgentResource through its query, or its model's.
+     * Then the resource's own view check (canView($record), else canViewAny()), the gate its list tools use, so a
+     * mention, a page context or record://{resource}/{id} shows no more than the tools would.
      *
      * @param  class-string<AgentResource>  $resource
      */
     protected static function record(string $resource, string $id): ?Model
+    {
+        $record = self::find($resource, $id);
+
+        return $record && self::canView($resource, $record) ? $record : null;
+    }
+
+    /** @param  class-string<AgentResource>  $resource */
+    protected static function canView(string $resource, Model $record): bool
+    {
+        if (method_exists($resource, 'canView')) {
+            return (bool) $resource::canView($record);
+        }
+
+        if (method_exists($resource, 'canViewAny')) {
+            return (bool) $resource::canViewAny();
+        }
+
+        return true;
+    }
+
+    /** @param  class-string<AgentResource>  $resource */
+    protected static function find(string $resource, string $id): ?Model
     {
         if (method_exists($resource, 'resolveRecordRouteBinding')) {
             $record = $resource::resolveRecordRouteBinding($id);
