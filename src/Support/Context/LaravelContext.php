@@ -87,7 +87,10 @@ class LaravelContext implements AgentContext
         $tenant = $key !== null ? $this->findTenant($key) : null;
         $leaveTenant = null;
 
-        if ($tenant && $user && ! $this->canAccessTenant($user, $tenant)) {
+        // Whoever acts inside the workspace: the person given, else the one already signed in on the guard.
+        $actor = $user ?? $previousUser;
+
+        if ($tenant && $actor && ! $this->canAccessTenant($actor, $tenant)) {
             // Fail closed before anything is entered: undo what was set so far and refuse.
             if ($userChanged) {
                 $previousUser ? $guard->setUser($previousUser) : $guard->forgetUser();

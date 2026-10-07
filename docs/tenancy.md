@@ -25,7 +25,7 @@ A queue worker running a turn, an MCP request, `AgentRun::in()` and the email ch
 
 ## The MCP path
 
-Put `{tenant}` in the path so an external agent works inside one workspace:
+Put `{tenant}` in the path so an external agent works inside one workspace (once `Agents::tenantModel()` is set, a path without it is refused with a 404 and the line to fix it):
 
 ```php
 // config/packstub-agents.php

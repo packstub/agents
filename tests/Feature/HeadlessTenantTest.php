@@ -171,6 +171,15 @@ it('refuses to enter a workspace the person is not a member of, on every path', 
         ->and(auth()->check())->toBeFalse() // nothing stays signed in
         ->and(Agents::tenant())->toBeNull();
 
+    // A tenant named without a person: the one already signed in is the actor, and is checked the same way.
+    actingAs($owner);
+    expect(fn () => AgentRuntime::enter(['tenant' => $globex->getKey()]))
+        ->toThrow(WorkspaceAccessDenied::class)
+        ->and($entered)->toBe([])
+        ->and(auth()->user()?->is($owner))->toBeTrue() // still signed in, as before the call
+        ->and(Agents::tenant())->toBeNull();
+    auth()->logout();
+
     // The email channel: the sender picked another workspace's address — dropped, no reply, the provider is not retried.
     expect(EmailChannel::receive(new InboundEmail(from: 'ada@example.com', subject: 'Widgets', text: 'How many?', messageId: '<m1@test>', tenant: 'globex')))->toBeNull()
         ->and(AgentTurn::query()->count())->toBe(0)
