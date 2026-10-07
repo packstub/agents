@@ -365,3 +365,13 @@ it('holds a decision on one of two proposals until the other is decided, then ru
         ->and(AgentTurn::query()->forConversation($conversation)->count())->toBe(1);
     Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $first->id);
 });
+
+it('enters with a tenant key that resolves to nothing when the app has no workspace model, as before', function () {
+    // Without Agents::tenantModel() a key cannot be looked up, so it is ignored rather than refused.
+    $leave = AgentRuntime::enter(['tenant' => 999]);
+
+    expect(Agents::tenant())->toBeNull()
+        ->and(Agents::context()->tenantModel())->toBeNull();
+
+    $leave();
+});
