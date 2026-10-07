@@ -83,8 +83,9 @@ class TypedDecisions
 
         // A yes runs the write, so only a reply made of nothing but yes phrases is one ("Sure, confirm it."). A yes-word
         // followed by anything else — a condition ("Yes, but only Alpha."), a question ("Ok wait, what does this change?"),
-        // an "if" ("Si lo apruebo, ¿qué cambia?"), a "not now" ("Sure, after lunch.") — is not a decision.
-        return self::madeOf($words, $lists['yes']) ? true : null;
+        // an "if" ("Si lo apruebo, ¿qué cambia?"), a "not now" ("Sure, after lunch.") — is not a decision, and neither is
+        // a yes asked back ("Ok?", "¿Confirmar?"): the punctuation is gone from $t, so the question mark is read on $text.
+        return ! preg_match('/[?¿？]/u', $text) && self::madeOf($words, $lists['yes']) ? true : null;
     }
 
     /**

@@ -544,9 +544,11 @@ class AgentTurns
     }
 
     /**
-     * A short reply that decides the pending proposals in words: true for "Yes, go ahead." (and its kin in the
-     * languages the UI ships), false for "No" / "Cancel", null when the reply is a question of its own. Only a
-     * reply of a few words counts; a leading yes or no decides one that goes on ("No, show me the order first").
+     * A short reply that decides the pending proposals in words (the lists alone, TypedDecisions::fromWords()): true
+     * for "Yes, go ahead." (and its kin in every locale's lists), false for "No" / "Cancel", null when the reply is a
+     * question of its own. Only a reply of a few words counts. A leading no decides one that goes on ("No, show me
+     * the order first"); a yes decides only a reply made of nothing but yes phrases and asking nothing ("Ok?" is a
+     * question).
      */
     public static function decisionInText(string $text): ?bool
     {
