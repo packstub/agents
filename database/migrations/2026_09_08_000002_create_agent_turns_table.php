@@ -45,6 +45,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['conversation_id', 'status']);
+            $table->index(['tenant', 'finished_at']); // the daily and monthly budget counters, per workspace
         });
     }
 

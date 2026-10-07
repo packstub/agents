@@ -65,7 +65,7 @@ The token checks live in `AgentTool::tokenRefusal()`, which returns why the curr
 Besides the tools, every server serves two resources and two prompts, so a client works without a tool call for the common cases (a subclass that lists its own `$resources` or `$prompts` replaces them):
 
 - `agents://resources` — the agent resources the person may see, each with its key, the `record://{key}/{id}` template and its filter vocabulary as a JSON schema, so a client knows what the record resource covers and how `show-table` filters read.
-- `record://{resource}/{id}` — one record summarized as the assistant reads it (`AgentResource::agentSummary` with every field): a client attaches it to a prompt ("@orders/12, what is the next step?") and the model starts informed. Only records the person may view.
+- `record://{resource}/{id}` — one record summarized as the assistant reads it (`AgentResource::agentSummary` with every field): a client attaches it to a prompt ("@orders/12, what is the next step?") and the model starts informed. Only records the person may view: the resource's `canView($record)`, else `canViewAny()`, is checked before the summary is produced, and any other record answers "No orders record matches 12, or it cannot be viewed."
 - `what-needs-attention` — the chat's generic starter questions (`Agent::suggestions()`), as one prompt to pick.
 - `ask-about-record` (`resource`, `id`) — the starter questions about one record, with its summary attached.
 

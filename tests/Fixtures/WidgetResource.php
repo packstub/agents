@@ -36,6 +36,12 @@ class WidgetResource implements AgentResource
         return Abilities::allows('widgets.view');
     }
 
+    /** One record: the list ability, plus 'widgets.view.{id}' once the app names records (Abilities::$allowed without '*'). */
+    public static function canView(Model $record): bool
+    {
+        return self::canViewAny() && Abilities::allows('widgets.view.'.$record->getKey());
+    }
+
     public static function agentSummary(Model $record, bool $full = false): array
     {
         return [

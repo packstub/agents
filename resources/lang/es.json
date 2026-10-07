@@ -56,6 +56,7 @@
     "Thinking…": "Pensando…",
     "This access token does not include :tool.": "Este token de acceso no incluye :tool.",
     "This access token is read-only.": "Este token de acceso es de solo lectura.",
+    "This workspace no longer exists.": "Este espacio de trabajo ya no existe.",
     "This workspace reached today's limit of :n answers. It resets at midnight.": "Este espacio de trabajo alcanzó el límite diario de :n respuestas. Se reinicia a medianoche.",
     "This workspace used its AI budget for the month.": "Este espacio de trabajo ha agotado su presupuesto de IA del mes.",
     "This workspace used its AI budget for today. It resets at midnight.": "Este espacio de trabajo ha agotado su presupuesto de IA de hoy. Se reinicia a medianoche.",
