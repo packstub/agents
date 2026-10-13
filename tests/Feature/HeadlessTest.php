@@ -57,7 +57,7 @@ it('boots without Filament, on the Laravel context', function () {
 
 it('serves MCP with draw-chart as the only default tool, then the registered tools by token', function () {
     $user = $this->user();
-    $this->widgets();
+    [$alpha] = $this->widgets(); // its own id: Postgres and MySQL keep counting across tests
     $mcp = ['Accept' => 'application/json, text/event-stream', 'MCP-Protocol-Version' => '2025-06-18'];
     $headers = fn (string $token) => ['Authorization' => 'Bearer '.$token] + $mcp;
     $list = fn (string $token) => postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'], $headers($token))->assertOk()->json('result.tools.*.name');
@@ -82,15 +82,15 @@ it('serves MCP with draw-chart as the only default tool, then the registered too
     expect($seen)->toBe(['user' => $user->id, 'guard' => 'sanctum', 'tenant' => null, 'locale' => 'de']);
 
     auth()->forgetGuards();
-    $call('retire-widget', ['id' => 1], $read)->assertStatus(400)->assertJsonPath('error.message', 'Tool [retire-widget] not found.');
+    $call('retire-widget', ['id' => $alpha->id], $read)->assertStatus(400)->assertJsonPath('error.message', 'Tool [retire-widget] not found.');
 
     // A scoped write token: the tools it names, and only those.
     auth()->forgetGuards();
     $scoped = $user->createToken('queue', ['read', 'write', 'tool:retire-widget'])->plainTextToken;
     expect($list($scoped))->toBe(['retire-widget']);
     auth()->forgetGuards();
-    $call('retire-widget', ['id' => 1], $scoped)->assertOk()->assertJsonPath('result.isError', false);
-    expect(Widget::query()->find(1)->status)->toBe('retired');
+    $call('retire-widget', ['id' => $alpha->id], $scoped)->assertOk()->assertJsonPath('result.isError', false);
+    expect(Widget::query()->find($alpha->id)->status)->toBe('retired');
     auth()->forgetGuards();
     $call('who-am-i', [], $scoped)->assertStatus(400)->assertJsonPath('error.message', 'Tool [who-am-i] not found.');
 });
