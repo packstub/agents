@@ -57,7 +57,7 @@ it('boots without Filament, on the Laravel context', function () {
 
 it('serves MCP with draw-chart as the only default tool, then the registered tools by token', function () {
     $user = $this->user();
-    [$alpha] = $this->widgets(); // its own id: Postgres and MySQL keep counting across tests
+    [$alpha] = $this->widgets();
     $mcp = ['Accept' => 'application/json, text/event-stream', 'MCP-Protocol-Version' => '2025-06-18'];
     $headers = fn (string $token) => ['Authorization' => 'Bearer '.$token] + $mcp;
     $list = fn (string $token) => postJson('/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/list'], $headers($token))->assertOk()->json('result.tools.*.name');

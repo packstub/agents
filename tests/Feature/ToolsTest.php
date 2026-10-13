@@ -91,7 +91,7 @@ it('hands domain errors back to the model as tool errors', function () {
 
 it('serves MCP over HTTP with a read or write token', function () {
     $user = $this->user();
-    [$alpha] = $this->widgets(); // its own id: Postgres and MySQL keep counting across tests
+    [$alpha] = $this->widgets();
     $read = $user->createToken('laptop', ['read'])->plainTextToken;
     $write = $user->createToken('desk', ['read', 'write'])->plainTextToken;
     // The headers a real MCP client sends.

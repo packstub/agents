@@ -67,7 +67,7 @@ class AgentTurns
             $store = app(AgentConversationStore::class);
             $undecided = array_diff_key($store->pendingCalls($conversationId, $participant), $held->decisions());
             $decided = $undecided !== [] ? app(TypedDecisions::class)->decide($input['prompt'], $undecided, $model) : null;
-            $sync = ($input['sync'] ?? false) ? true : null; // this request's, as above
+            $sync = ($input['sync'] ?? false) ? true : null;
 
             if ($decided !== null) {
                 $held->forceFill([
@@ -84,8 +84,7 @@ class AgentTurns
                 return $held->refresh();
             }
 
-            // The waiting turn runs before the question, as this request runs it, even when nothing is left to decline
-            // (its answer is gone): a `sync` the first decision stored never makes a chat request run it.
+            // Even when nothing is left to decline (the answer is gone), so a stale `sync` from the first decision is dropped.
             $held->forceFill(['input' => array_filter([
                 ...$held->input,
                 ...($undecided !== [] ? [
