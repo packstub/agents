@@ -12,6 +12,10 @@
 
 An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https://github.com/laravel/ai) and [laravel/mcp](https://github.com/laravel/mcp). Write a tool once and it serves both your own assistant and Claude Code, Claude Desktop, Cursor or any other MCP client, with your app's own authorization deciding who may run it. [Filament Agents](https://packstub.dev/docs/filament-agents) puts a chat and the operator pages on top of it inside a Filament panel.
 
+![A question about pending orders: the search-orders and show-table calls folded above the answer, a proposal to confirm order RO-00016 with Approve and Reject buttons, and the live Orders table filtered to the three pending rows](https://raw.githubusercontent.com/packstub/art/main/filament-agents/docs/chat-table.png)
+
+<sub>The engine's tools, turns and approvals, as Filament Agents shows them in a panel. Without Filament, your own chat surface drives the same calls through `AgentChat`.</sub>
+
 ## Features
 
 - **[One tool list, two front doors](#writing-tools)**: your own agent and any MCP client (Claude Code, Cursor) call the same tools.
@@ -113,6 +117,8 @@ class AcmeServer extends \Packstub\Agents\Mcp\AgentServer
 
 `Agents::useTools([...])` works instead of a server class. A write tool may add `describe(array $arguments): ?string` to phrase its own proposals ("Confirm order RO-00016 for Acme?"); without one the question is the tool's title and its first argument. Read more: [Tools](https://packstub.dev/docs/agents/tools).
 
+![A request to confirm an order paused as the question "Confirm order RO-00020 for Halvorsen & Co.?" with Approve and Reject buttons, the status change it would make (Pending struck through, then Confirmed) and the folded confirm-order call under it](https://raw.githubusercontent.com/packstub/art/main/filament-agents/docs/chat-approval.png)
+
 ## The agent
 
 `packstub-agents:agent` scaffolds `App\Ai\Agents\Assistant`, a subclass of `Packstub\Agents\Ai\Agent` with two slots to fill: `persona()` (who it is) and `domain()` (what the workspace is). The base class supplies the generic working and answering rules, the dynamic context (date, workspace, person, role, language — sent with the question, so the system prompt and the history stay cacheable) and the provider options (Anthropic cache breakpoints on the instructions and the settled history, reasoning effort or thinking level per model). Append to any of them by overriding `workRules()`, `answerRules()` or `context()` and merging the parent's list; `suggestions()` gives an empty chat its starter questions.
@@ -180,6 +186,8 @@ class Orders implements AgentResource
 
 Register it with `Agents::useResources([Orders::class])`. `draw-chart` renders bar, line, pie and doughnut charts from numbers the model already retrieved, and any tool can return a `chart` key of its own. Read more: [Tables and charts](https://packstub.dev/docs/agents/tables-and-charts).
 
+![A question about order value over four weeks answered with a sentence and a bar chart, Order value by week](https://raw.githubusercontent.com/packstub/art/main/filament-agents/docs/chat-chart.png)
+
 ## MCP clients
 
 Mint a Sanctum token with the abilities the client should have — `read`, `write`, `tool:{name}` to scope it, `tenant:{slug}` to bind it to a workspace — and connect any MCP client to `POST /mcp`:
@@ -194,9 +202,13 @@ claude mcp add --transport http acme https://acme.test/mcp --header "Authorizati
 
 The endpoint sits behind `throttle`, `auth:sanctum` and the package's own middleware, so external agents get exactly the tools the person's role and their token allow. Read more: [MCP clients](https://packstub.dev/docs/agents/mcp-clients).
 
+![The Create token modal from Filament Agents: read and write abilities, an expiry, and the tools table with a Read or Write badge per tool; the ticked tools become tool:{name} abilities on the token](https://raw.githubusercontent.com/packstub/art/main/filament-agents/docs/create-token.png)
+
 ## Budgets and limits
 
 `config/packstub-agents.php` holds the platform ceiling (`AGENT_TURNS_PER_MINUTE`, `AGENT_TURNS_PER_DAY`, `AGENT_TOKENS_PER_DAY`, `AGENT_TOKENS_PER_MONTH`, `AGENT_USER_TOKENS_PER_DAY`, `AGENT_USER_TOKENS_PER_MONTH`, `AGENT_PROMPT_MAX_CHARS`). Rows in `agent_limits` override it: one global row, optional rows per workspace and per user, empty fields inherit. `AgentBudget::summary()` gives the numbers for a settings page, and every ended turn keeps its record (provider, model, tokens, tools, duration, how it ended), optionally as one log line. Read more: [Budgets and limits](https://packstub.dev/docs/agents/budgets-and-limits).
+
+![The agent_limits rows on an operator page from Filament Agents: platform defaults, two workspace rows on different plans and one user with the assistant switched off](https://raw.githubusercontent.com/packstub/art/main/filament-agents/docs/ai-limits.png)
 
 ## Tenancy
 
