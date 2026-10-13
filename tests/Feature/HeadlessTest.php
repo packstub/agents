@@ -469,6 +469,36 @@ it('runs a held decision in the request when the decision that completes it was 
     Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $held->id && $job->connection === 'sync');
 });
 
+it('hands a held decision to a worker when the request that completes it did not ask to run it, whatever the first one asked', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+
+    // The first decision came through AgentRun (sync), the second is a click in a chat: that request has returned,
+    // so the chat's request does not run the turn itself.
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $conversation);
+    $turns->enqueue($conversation, $user, ['decisions' => ['c1' => true], 'sync' => true], null, 'auto', null);
+    $held = $turns->enqueue($conversation, $user, ['decisions' => ['c2' => false]], null, 'auto', null);
+
+    expect($held->decisions())->toBe(['c1' => true, 'c2' => false])
+        ->and($held->input)->not->toHaveKey('sync');
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $held->id && $job->connection !== 'sync');
+
+    // The same for a reply typed in a chat after that decision (#44).
+    $typed = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $typed);
+    $first = $turns->enqueue($typed, $user, ['decisions' => ['c1' => true], 'sync' => true], null, 'auto', null);
+    $turn = $turns->enqueue($typed, $user, ['prompt' => 'No, leave them.'], null, 'auto', null);
+
+    expect($turn->id)->toBe($first->id)
+        ->and($turn->decisions())->toBe(['c1' => true, 'c2' => false])
+        ->and($turn->input)->not->toHaveKey('sync');
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $turn->id && $job->connection !== 'sync');
+});
+
 it('enters with a tenant key that resolves to nothing when the app has no workspace model, as before', function () {
     // Without Agents::tenantModel() a key cannot be looked up, so it is ignored rather than refused.
     $leave = AgentRuntime::enter(['tenant' => 999]);
