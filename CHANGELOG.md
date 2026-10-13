@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+### Fixed
+
+- **A reply typed after deciding one of two proposals is answered** (#44). It stayed queued behind the decision waiting for the other proposal, and the conversation was stuck. The reply is now read against the proposals still undecided, and the decision already made stands. A reply that decides them joins the waiting turn and runs with it. A question declines them with the "not decided" note (`AgentTurns::supersededResult()`, no `ProposalDecided` event for those), and is answered after the waiting turn. See [Decisions in words](https://packstub.dev/docs/agents/tools#decisions-in-words-and-two-proposals-at-once).
+
 ## 1.9.0 — 2026-10-07
 
 ### Added

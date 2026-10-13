@@ -174,8 +174,15 @@ class RunAgentTurn implements ShouldQueue
             return;
         }
 
+        // A proposal superseded by a question typed instead of a click (AgentTurns::enqueue()) is declined with the
+        // note the model reads for a proposal left undecided, not as a rejection.
+        $superseded = (array) ($turn->input['superseded'] ?? []);
         $input = $turn->prompt() ?? Decisions::from(collect($turn->decisions() ?? [])->map(
-            fn (bool $approve) => $approve ? Decision::approve() : Decision::reject(AgentTurns::rejectionResult()),
+            fn (bool $approve, int|string $callId) => match (true) {
+                in_array((string) $callId, $superseded, true) => Decision::reject(AgentTurns::supersededResult()),
+                $approve => Decision::approve(),
+                default => Decision::reject(AgentTurns::rejectionResult()),
+            },
         )->all());
 
         // The files the person attached to the question, as the provider reads them; the records they mentioned
@@ -198,7 +205,7 @@ class RunAgentTurn implements ShouldQueue
 
             $pending = $store->pendingCalls($turn->conversation_id, $user);
 
-            foreach ($turn->decisions() as $callId => $approved) {
+            foreach (array_diff_key($turn->decisions(), array_flip($superseded)) as $callId => $approved) {
                 ProposalDecided::dispatch($turn, (string) $callId, (string) ($pending[$callId]['name'] ?? ''), (array) ($pending[$callId]['arguments'] ?? []), (bool) $approved);
             }
         }

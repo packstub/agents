@@ -53,6 +53,41 @@ class AgentTurns
             }
         }
 
+        // A reply typed while a decision waits for the other proposals of its answer (#44): the click stands and the
+        // reply is read against the proposals still undecided. A reply that decides them joins the waiting turn,
+        // recorded as its question; anything else declines them, so the waiting turn runs with the click and the
+        // question runs after it, as its own turn.
+        if (is_string($input['prompt'] ?? null) && $messageId === null && ($held = $this->heldDecision($conversationId, $participant)) !== null) {
+            $store = app(AgentConversationStore::class);
+            $undecided = array_diff_key($store->pendingCalls($conversationId, $participant), $held->decisions());
+            $decided = $undecided !== [] ? app(TypedDecisions::class)->decide($input['prompt'], $undecided, $model) : null;
+            $sync = ($held->input['sync'] ?? false) || ($input['sync'] ?? false) ? true : null;
+
+            if ($decided !== null) {
+                $held->forceFill([
+                    'message_id' => $this->storeQuestionOf($conversationId, $participant, $input, $context),
+                    'input' => array_filter([
+                        ...$held->input,
+                        ...self::decisionInput($decided, $input['prompt']),
+                        'decisions' => [...$held->decisions(), ...$decided['decisions']],
+                        'sync' => $sync,
+                    ], fn ($v) => $v !== null),
+                ])->save();
+                $this->startNext($conversationId);
+
+                return $held->refresh();
+            }
+
+            if ($undecided !== []) {
+                $held->forceFill(['input' => array_filter([
+                    ...$held->input,
+                    'decisions' => [...$held->decisions(), ...array_fill_keys(array_keys($undecided), false)],
+                    'superseded' => array_keys($undecided),
+                    'sync' => $sync,
+                ], fn ($v) => $v !== null)])->save();
+            }
+        }
+
         $turn = AgentTurn::query()->create([
             'id' => (string) Str::uuid7(),
             'conversation_id' => $conversationId,
@@ -250,26 +285,10 @@ class AgentTurns
                     $store->declinePending($conversationId, $participant, self::supersededResult());
                 }
 
-                $messageId = $store->storeQuestion(
-                    $conversationId,
-                    $participant,
-                    Agents::agentClass(),
-                    $turn->prompt(),
-                    (array) ($turn->input['attachments'] ?? []),
-                    array_filter([
-                        'continuation' => ($turn->input['continuation'] ?? false) ? true : null,
-                        'mentions' => ($turn->input['mentions'] ?? []) !== [] ? array_values((array) $turn->input['mentions']) : null,
-                        'context' => filled($turn->context) ? $turn->context : null, // the record the chat is about stays with the conversation
-                    ], fn ($v) => $v !== null),
-                );
+                $messageId = $this->storeQuestionOf($conversationId, $participant, $turn->input, $turn->context);
 
                 if ($decided !== null) {
-                    $turn->forceFill(['input' => array_filter([
-                        'decisions' => $decided['decisions'],
-                        'said' => $turn->prompt(),
-                        'decided_by' => $decided['by'],
-                        'decision_reason' => $decided['reason'],
-                    ], fn ($v) => $v !== null)]);
+                    $turn->forceFill(['input' => self::decisionInput($decided, $turn->prompt())]);
                 }
             }
 
@@ -283,6 +302,16 @@ class AgentTurns
 
             if ($missing !== []) {
                 $turn->forceFill(['status' => AgentTurn::QUEUED])->save();
+
+                // enqueue() folds a reply typed behind a waiting decision into it, so nothing should queue there; a turn
+                // that does (one sent with a recorded question) waits until the other proposals are decided.
+                if (AgentTurn::query()->forConversation($conversationId)->where('status', AgentTurn::QUEUED)->whereKeyNot($turn->id)->exists()) {
+                    Log::warning('Agent turn waits behind a decision on one of several proposals; it starts once the others are decided.', [
+                        'conversation_id' => $conversationId,
+                        'held_turn' => $turn->id,
+                        'undecided' => array_keys($missing),
+                    ]);
+                }
 
                 return null;
             }
@@ -299,6 +328,46 @@ class AgentTurns
         $this->dispatch($job, (bool) ($turn->input['sync'] ?? false));
 
         return $turn->refresh();
+    }
+
+    /** The person's decision waiting for the other proposals of its answer (a click on one of two), if any. */
+    protected function heldDecision(string $conversationId, object $participant): ?AgentTurn
+    {
+        return AgentTurn::query()->forConversation($conversationId)->where('status', AgentTurn::QUEUED)
+            ->where('participant_type', Conversation::participantType($participant))->where('participant_id', Conversation::participantKey($participant))
+            ->orderBy('id')->get()->first(fn (AgentTurn $t) => $t->decisions() !== null);
+    }
+
+    /** Record the question a turn's input carries, as the person typed it, and return the message id. */
+    protected function storeQuestionOf(string $conversationId, object $participant, array $input, ?string $context): string
+    {
+        return app(AgentConversationStore::class)->storeQuestion(
+            $conversationId,
+            $participant,
+            Agents::agentClass(),
+            (string) $input['prompt'],
+            (array) ($input['attachments'] ?? []),
+            array_filter([
+                'continuation' => ($input['continuation'] ?? false) ? true : null,
+                'mentions' => ($input['mentions'] ?? []) !== [] ? array_values((array) $input['mentions']) : null,
+                'context' => filled($context) ? $context : null, // the record the chat is about stays with the conversation
+            ], fn ($v) => $v !== null),
+        );
+    }
+
+    /**
+     * The input of a turn a typed reply decided: the decisions, what was said and what read it (TypedDecisions).
+     *
+     * @param  array{decisions: array<string, bool>, by: string, reason: ?string}  $decided
+     */
+    protected static function decisionInput(array $decided, string $said): array
+    {
+        return array_filter([
+            'decisions' => $decided['decisions'],
+            'said' => $said,
+            'decided_by' => $decided['by'],
+            'decision_reason' => $decided['reason'],
+        ], fn ($v) => $v !== null);
     }
 
     /**
