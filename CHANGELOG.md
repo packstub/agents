@@ -15,6 +15,10 @@ All notable changes to `packstub/agents` are documented here.
 
   `AGENT_DECISION_CLASSIFIER_MIN_CONFIDENCE` (0.8): a decision given with a lower confidence makes the reply a question. Drivers that give no confidence (`agent`) are not held to it. The lists still come first, and a proposal left undecided or a failure still makes the reply a question. See [Decisions in words](https://packstub.dev/docs/agents/tools#decisions-in-words-and-two-proposals-at-once).
 
+### Fixed
+
+- A typed decision, or a decision that completes a held one, sent through `AgentRun`, a command or the email channel runs in that request again, as its question would have, instead of waiting for a queue worker.
+
 ## 1.9.0 — 2026-10-07
 
 ### Added
