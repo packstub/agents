@@ -5,9 +5,10 @@ namespace Packstub\Agents\Support;
 use Closure;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
-use Laravel\Ai\Ai;
-use Packstub\Agents\Ai\Side\DecisionAgent;
+use Packstub\Agents\Contracts\DecisionClassifier;
 use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Support\Decisions\AgentDecisionClassifier;
+use Packstub\Agents\Support\Decisions\JevDecisionClassifier;
 use Throwable;
 
 /**
@@ -17,8 +18,9 @@ use Throwable;
  * 2. the word lists (resources/lang/<locale>/decisions.php, every locale's; a list in the app's
  *    lang/vendor/packstub-agents/<locale>/decisions.php replaces the package's): a reply made of nothing but yes
  *    phrases approves every proposal, one that is or opens with a no rejects them;
- * 3. the DecisionAgent side agent (config `decision_classifier`, off by default), for a reply the lists cannot read,
- *    which may decide each proposal on its own ("Yes, but only Alpha.").
+ * 3. the classifier (config `decision_classifier`, off by default: the DecisionAgent side agent, TypeSafe's Jev or the
+ *    app's own DecisionClassifier), for a reply the lists cannot read, which may decide each proposal on its own
+ *    ("Yes, but only Alpha.").
  *
  * None of them deciding means the reply is a question of its own: the proposals are declined with a note the model
  * reads and it may propose again. The lists come before the classifier, so it never approves what they reject.
@@ -40,7 +42,7 @@ class TypedDecisions
      * Decide the pending proposals from the reply, or null when it is not a decision.
      *
      * @param  array<string, array{name: string, arguments: array<string, mixed>}>  $pending  call id => the proposed call
-     * @return array{decisions: array<string, bool>, by: string, reason: ?string}|null
+     * @return array{decisions: array<string, bool>, by: string, reason: ?string, driver?: string, confidence?: ?float}|null the classifier's adds the driver that read the reply and its lowest confidence
      */
     public function decide(string $text, array $pending, ?string $model = null): ?array
     {
@@ -221,11 +223,12 @@ class TypedDecisions
     }
 
     /**
-     * The classifier's reading, applied only when it decided every proposal: one it left undecided, or a failure,
-     * makes the reply a question.
+     * The classifier's reading, applied only when it decided every proposal, each with at least the confidence
+     * `decision_classifier.min_confidence` asks when it gives one: one it left undecided, one it was less sure of,
+     * or a failure, makes the reply a question.
      *
      * @param  Closure(): array<string, array{name: string, arguments: array<string, mixed>, question: string}>  $build  the pending calls with their questions
-     * @return array{decisions: array<string, bool>, by: string, reason: ?string}|null
+     * @return array{decisions: array<string, bool>, by: string, reason: ?string, driver: string, confidence: ?float}|null
      */
     protected function byClassifier(string $text, Closure $build, ?string $model): ?array
     {
@@ -235,42 +238,50 @@ class TypedDecisions
             return null;
         }
 
-        // With the assistant faked in a test the classifier runs only when it is faked too.
-        if (! DecisionAgent::runsBeside(Agents::agentClass())) {
-            return null;
-        }
-
         try {
             $proposals = $build();
-            $provider = Ai::textProvider(config('packstub-agents.decision_classifier.provider') ?: AgentModels::resolve($model)['provider']);
-            $verdict = DecisionAgent::run(DecisionAgent::input(Str::limit($text, 1000), $proposals), $provider, config('packstub-agents.decision_classifier.model') ?: null);
+            $classifier = app(DecisionClassifier::class);
+            $reading = $classifier->classify(Str::limit($text, 1000), $proposals, $model);
         } catch (Throwable $e) {
             report($e);
 
             return null;
         }
 
-        $read = [];
-        foreach ((array) ($verdict['decisions'] ?? []) as $entry) {
-            if (is_array($entry) && isset($entry['id'], $proposals[(string) $entry['id']])) {
-                $read[(string) $entry['id']] = $entry['decision'] ?? null;
-            }
-        }
+        $floor = config('packstub-agents.decision_classifier.min_confidence');
 
         $decisions = [];
+        $lowest = null;
         foreach (array_keys($proposals) as $id) {
-            $decision = $read[$id] ?? null;
+            $entry = $reading['decisions'][$id] ?? null;
+            $decision = is_array($entry) ? ($entry['decision'] ?? null) : null;
+            $confidence = is_array($entry) ? ($entry['confidence'] ?? null) : null;
 
-            if (! in_array($decision, [DecisionAgent::APPROVE, DecisionAgent::REJECT], true)) {
+            if (! in_array($decision, [DecisionClassifier::APPROVE, DecisionClassifier::REJECT], true)) {
                 return null;
             }
 
-            $decisions[$id] = $decision === DecisionAgent::APPROVE;
+            if ($floor !== null && $confidence !== null && (float) $confidence < (float) $floor) {
+                return null;
+            }
+
+            $decisions[$id] = $decision === DecisionClassifier::APPROVE;
+            $lowest = $confidence === null ? $lowest : min($lowest ?? 1.0, (float) $confidence);
         }
 
-        $reason = Str::limit(trim((string) ($verdict['reason'] ?? '')), 300);
+        $reason = Str::limit(trim((string) ($reading['reason'] ?? '')), 300);
 
-        return ['decisions' => $decisions, 'by' => self::BY_CLASSIFIER, 'reason' => $reason !== '' ? $reason : null];
+        return ['decisions' => $decisions, 'by' => self::BY_CLASSIFIER, 'reason' => $reason !== '' ? $reason : null, 'driver' => self::driverName($classifier), 'confidence' => $lowest];
+    }
+
+    /** The name a turn records for the classifier that read the reply: `agent`, `jev`, or the app's class. */
+    public static function driverName(DecisionClassifier $classifier): string
+    {
+        return match (true) {
+            $classifier instanceof AgentDecisionClassifier => 'agent',
+            $classifier instanceof JevDecisionClassifier => 'jev',
+            default => $classifier::class,
+        };
     }
 
     /**

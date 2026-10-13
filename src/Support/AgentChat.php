@@ -186,15 +186,16 @@ class AgentChat
             ->where('participant_type', $participant->getMorphClass())
             ->where('participant_id', $participant->getKey());
 
+        // whereLike, case-insensitive: a plain like is case-sensitive on Postgres, so "alpha" would miss "Alpha" there.
         $matches = ConversationMessage::query()
             ->whereIn('conversation_id', (clone $own)->select('id'))
-            ->where('content', 'like', '%'.str_replace(['%', '_'], ['\\%', '\\_'], $query).'%')
+            ->whereLike('content', '%'.str_replace(['%', '_'], ['\\%', '\\_'], $query).'%', caseSensitive: false)
             ->orderByDesc('id')
             ->limit($limit * 10)
             ->get(['conversation_id', 'content'])
             ->unique('conversation_id');
 
-        $byTitle = (clone $own)->where('title', 'like', '%'.str_replace(['%', '_'], ['\\%', '\\_'], $query).'%')->pluck('id');
+        $byTitle = (clone $own)->whereLike('title', '%'.str_replace(['%', '_'], ['\\%', '\\_'], $query).'%', caseSensitive: false)->pluck('id');
         $ids = $matches->pluck('conversation_id')->merge($byTitle)->unique()->values();
 
         if ($ids->isEmpty()) {

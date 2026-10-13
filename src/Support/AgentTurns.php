@@ -46,7 +46,12 @@ class AgentTurns
                 ->orderBy('id')->get()->first(fn (AgentTurn $t) => $t->decisions() !== null);
 
             if ($held) {
-                $held->forceFill(['input' => ['decisions' => [...$held->decisions(), ...$input['decisions']]]])->save();
+                // `sync` from either one: a decision made through AgentRun or a command runs here, not on a worker.
+                $held->forceFill(['input' => array_filter([
+                    ...$held->input,
+                    'decisions' => [...$held->decisions(), ...$input['decisions']],
+                    'sync' => ($held->input['sync'] ?? false) || ($input['sync'] ?? false) ? true : null,
+                ], fn ($v) => $v !== null)])->save();
                 $this->startNext($conversationId);
 
                 return $held->refresh();
@@ -288,7 +293,12 @@ class AgentTurns
                 $messageId = $this->storeQuestionOf($conversationId, $participant, $turn->input, $turn->context);
 
                 if ($decided !== null) {
-                    $turn->forceFill(['input' => self::decisionInput($decided, $turn->prompt())]);
+                    // The decision keeps `sync`: a reply typed through AgentRun, a command or the email channel runs here,
+                    // as its question would have, instead of waiting for a worker.
+                    $turn->forceFill(['input' => array_filter([
+                        ...self::decisionInput($decided, $turn->prompt()),
+                        'sync' => ($turn->input['sync'] ?? false) ? true : null,
+                    ], fn ($v) => $v !== null)]);
                 }
             }
 
@@ -358,7 +368,7 @@ class AgentTurns
     /**
      * The input of a turn a typed reply decided: the decisions, what was said and what read it (TypedDecisions).
      *
-     * @param  array{decisions: array<string, bool>, by: string, reason: ?string}  $decided
+     * @param  array{decisions: array<string, bool>, by: string, reason: ?string, driver?: string, confidence?: ?float}  $decided
      */
     protected static function decisionInput(array $decided, string $said): array
     {
@@ -367,6 +377,8 @@ class AgentTurns
             'said' => $said,
             'decided_by' => $decided['by'],
             'decision_reason' => $decided['reason'],
+            'decision_driver' => $decided['driver'] ?? null,
+            'decision_confidence' => $decided['confidence'] ?? null,
         ], fn ($v) => $v !== null);
     }
 

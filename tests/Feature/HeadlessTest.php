@@ -326,6 +326,23 @@ it('takes a typed "Yes, go ahead." over pending proposals as their approval, and
     }
 });
 
+it('runs a typed decision in the request when its reply was sent to run there, as AgentRun and the email channel send it', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+    $store = app(AgentConversationStore::class);
+
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $conversation);
+
+    $turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => 'Yes, go ahead.', 'sync' => true], null, 'auto', null);
+
+    expect($turn->decisions())->toBe(['c1' => true, 'c2' => true])
+        ->and($turn->input['sync'] ?? null)->toBeTrue();
+    // Dispatched on the sync connection (the queue fake records those too), not handed to a worker.
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $turn->id && $job->connection === 'sync');
+});
+
 it('declines the pending proposals with a note when the person asks something else instead', function () {
     $user = $this->user();
     actingAs($user);
@@ -432,6 +449,24 @@ it('runs a click on one of two proposals, then a question typed instead of the o
     $rows = ConversationMessage::query()->where('conversation_id', $conversation)->where('content', '!=', '')->orderBy('id')->get(['role', 'content']);
     expect($rows->pluck('content')->take(2)->all())->toBe(['Alpha is retired.', "What happens to Beta's orders?"])
         ->and($rows->pluck('role')->all())->toBe(['assistant', 'user', 'assistant']);
+});
+
+it('runs a held decision in the request when the decision that completes it was sent to run there', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $conversation);
+
+    $turns->enqueue($conversation, $user, ['decisions' => ['c1' => true]], null, 'auto', null);
+    $held = $turns->enqueue($conversation, $user, ['decisions' => ['c2' => false], 'sync' => true], null, 'auto', null);
+
+    expect($held->decisions())->toBe(['c1' => true, 'c2' => false])
+        ->and($held->input['sync'] ?? null)->toBeTrue();
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $held->id && $job->connection === 'sync');
 });
 
 it('enters with a tenant key that resolves to nothing when the app has no workspace model, as before', function () {

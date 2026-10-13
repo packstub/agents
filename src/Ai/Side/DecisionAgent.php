@@ -3,22 +3,24 @@
 namespace Packstub\Agents\Ai\Side;
 
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Packstub\Agents\Contracts\DecisionClassifier;
 
 /**
  * Reads a reply typed while proposals wait for a decision, when the word
  * lists cannot (config `decision_classifier`, off by default): for each
  * proposal whether the person approves it, rejects it, or has not decided
  * ("Yes, but only Alpha." approves one and rejects the other; "Ok wait, what
- * does this change?" decides nothing). TypedDecisions applies the answer only
- * when every proposal got an approve or a reject; anything else is a question.
+ * does this change?" decides nothing). The `agent` driver of the
+ * DecisionClassifier (AgentDecisionClassifier) runs it; TypedDecisions applies
+ * the answer only when every proposal got an approve or a reject.
  */
 class DecisionAgent extends SideAgent
 {
-    public const string APPROVE = 'approve';
+    public const string APPROVE = DecisionClassifier::APPROVE;
 
-    public const string REJECT = 'reject';
+    public const string REJECT = DecisionClassifier::REJECT;
 
-    public const string QUESTION = 'question';
+    public const string QUESTION = DecisionClassifier::QUESTION;
 
     public function timeout(): int
     {

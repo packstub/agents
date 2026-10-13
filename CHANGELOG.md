@@ -4,8 +4,21 @@ All notable changes to `packstub/agents` are documented here.
 
 ## Unreleased
 
+### Added
+
+- **A pluggable decision classifier with a confidence floor, and a Jev driver** (#39). The classifier that reads a typed reply the word lists cannot is now `Packstub\Agents\Contracts\DecisionClassifier`, picked with `AGENT_DECISION_CLASSIFIER_DRIVER`:
+  - `agent` (the default): the `DecisionAgent` side agent, as in 1.9.
+  - `jev`: [Jev](https://docs.typesafe.ai/), TypeSafe's decision model. One choice question per proposal, answered with a confidence and no reason, in about 100 ms. Set `TYPESAFE_API_KEY`; `TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL` (`jev-latest`) are optional. The reply and the proposal questions are sent to TypeSafe.
+  - A class of your own implementing the contract, named as the driver or bound to the interface.
+
+  The turn records which classifier read the reply and how sure it was (#42): `AgentTurn::decisionDriver()` (`agent`, `jev` or the app's class) and `decisionConfidence()` (the lowest confidence among the decisions applied; null for the side agent), so the floor can be set from what the classifier actually returns.
+
+  `AGENT_DECISION_CLASSIFIER_MIN_CONFIDENCE` (0.8): a decision given with a lower confidence makes the reply a question. Drivers that give no confidence (`agent`) are not held to it. The lists still come first, and a proposal left undecided or a failure still makes the reply a question. See [Decisions in words](https://packstub.dev/docs/agents/tools#decisions-in-words-and-two-proposals-at-once).
+
 ### Fixed
 
+- A typed decision, or a decision that completes a held one, sent through `AgentRun`, a command or the email channel runs in that request again, as its question would have, instead of waiting for a queue worker.
+- **Postgres: chat search ignores case, and a workspace slug no longer crashes a key lookup.** `AgentChat::search()` matched with a plain `like`, which is case-sensitive on Postgres, so "alpha" missed "Alpha"; it now uses `whereLike(..., caseSensitive: false)` (`ilike` there). `LaravelContext::findTenant()` and `findTenantBySlug()` (without a slug attribute) passed a slug such as `acme` to an integer primary key, which Postgres refuses with an error where SQLite and MySQL match nothing, so `agents:run --tenant=acme`, `agents:embed --tenant=acme` and the email channel failed instead of falling back to the slug; a key that cannot be the model's now matches nothing. The suite runs on Postgres and MySQL in CI as well as SQLite.
 - **A reply typed after deciding one of two proposals is answered** (#44). It stayed queued behind the decision waiting for the other proposal, and the conversation was stuck. The reply is now read against the proposals still undecided, and the decision already made stands. A reply that decides them joins the waiting turn and runs with it. A question declines them with the "not decided" note (`AgentTurns::supersededResult()`, no `ProposalDecided` event for those), and is answered after the waiting turn. See [Decisions in words](https://packstub.dev/docs/agents/tools#decisions-in-words-and-two-proposals-at-once).
 
 ## 1.9.0 — 2026-10-07
