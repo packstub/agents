@@ -84,14 +84,16 @@ class AgentTurns
                 return $held->refresh();
             }
 
-            if ($undecided !== []) {
-                $held->forceFill(['input' => array_filter([
-                    ...$held->input,
+            // The waiting turn runs before the question, as this request runs it, even when nothing is left to decline
+            // (its answer is gone): a `sync` the first decision stored never makes a chat request run it.
+            $held->forceFill(['input' => array_filter([
+                ...$held->input,
+                ...($undecided !== [] ? [
                     'decisions' => [...$held->decisions(), ...array_fill_keys(array_keys($undecided), false)],
                     'superseded' => array_keys($undecided),
-                    'sync' => $sync,
-                ], fn ($v) => $v !== null)])->save();
-            }
+                ] : []),
+                'sync' => $sync,
+            ], fn ($v) => $v !== null)])->save();
         }
 
         $turn = AgentTurn::query()->create([

@@ -499,6 +499,39 @@ it('hands a held decision to a worker when the request that completes it did not
     Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $turn->id && $job->connection !== 'sync');
 });
 
+it('hands a held decision to a worker before a question typed in a chat after it, whatever the first decision asked (#44)', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+
+    // A click sent through AgentRun (sync), then a question from a chat: the question declines Beta, the waiting turn
+    // goes to the worker first, and the question waits for it.
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $conversation);
+    $held = $turns->enqueue($conversation, $user, ['decisions' => ['c1' => true], 'sync' => true], null, 'auto', null);
+    $question = $turns->enqueue($conversation, $user, ['prompt' => "What happens to Beta's orders?"], null, 'auto', null);
+
+    expect($held->fresh()->status)->toBe(AgentTurn::PENDING)
+        ->and($held->fresh()->decisions())->toBe(['c1' => true, 'c2' => false])
+        ->and($held->fresh()->input['superseded'])->toBe(['c2'])
+        ->and($held->fresh()->input)->not->toHaveKey('sync')
+        ->and($question->status)->toBe(AgentTurn::QUEUED);
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $held->id && $job->connection !== 'sync');
+    Queue::assertNotPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $question->id);
+
+    // The same when the waiting turn's answer is gone, so nothing is left to decline.
+    $gone = $store->startConversation($user, 'Retire Alpha and Beta');
+    $paused = pausedAnswer($user, $gone);
+    $held = $turns->enqueue($gone, $user, ['decisions' => ['c1' => true], 'sync' => true], null, 'auto', null);
+    $paused->delete();
+    $turns->enqueue($gone, $user, ['prompt' => 'Where did it go?'], null, 'auto', null);
+
+    expect($held->fresh()->input)->not->toHaveKey('sync')->not->toHaveKey('superseded');
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $held->id && $job->connection !== 'sync');
+});
+
 it('enters with a tenant key that resolves to nothing when the app has no workspace model, as before', function () {
     // Without Agents::tenantModel() a key cannot be looked up, so it is ignored rather than refused.
     $leave = AgentRuntime::enter(['tenant' => 999]);

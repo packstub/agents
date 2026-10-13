@@ -63,21 +63,21 @@ it('asks for approval with the call as a question: the tool\'s own sentence, or 
 
 it('gives each person only the tools their abilities allow, in the list and on a direct call', function () {
     actingAs($this->user());
-    $this->widgets();
+    [$alpha] = $this->widgets(); // a widget that exists, so the refusals below are not a lookup that missed
     Abilities::$allowed = ['widgets.view'];
     Abilities::$role = 'Viewer';
 
     WidgetServer::tool(ListWidgets::class, [])->assertOk()->assertSee('Alpha');
-    WidgetServer::tool(RenameWidget::class, ['id' => 1, 'name' => 'X'])->assertHasErrors()->assertSee('not found');
+    WidgetServer::tool(RenameWidget::class, ['id' => $alpha->id, 'name' => 'X'])->assertHasErrors()->assertSee('not found');
 
-    $direct = app(RenameWidget::class)->handle(new Request(['id' => 1, 'name' => 'X']));
+    $direct = app(RenameWidget::class)->handle(new Request(['id' => $alpha->id, 'name' => 'X']));
     expect($direct->isError())->toBeTrue()->and((string) $direct->content())->toContain('Your role (Viewer) is not allowed');
 
     $names = collect((new WidgetAgent)->tools())->map(fn ($t) => $t->name())->all();
     expect($names)->toContain('list-widgets', 'draw-chart')->not->toContain('rename-widget');
 
     Abilities::$role = null;
-    $direct = app(RenameWidget::class)->handle(new Request(['id' => 1, 'name' => 'X']));
+    $direct = app(RenameWidget::class)->handle(new Request(['id' => $alpha->id, 'name' => 'X']));
     expect((string) $direct->content())->toContain('You are not allowed');
 });
 
