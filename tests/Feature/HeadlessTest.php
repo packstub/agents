@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
@@ -8,6 +9,7 @@ use Illuminate\Support\Str;
 use Laravel\Ai\Enums\MessageStatus;
 use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\PendingStep;
+use Packstub\Agents\Events\ProposalDecided;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Mcp\Tools\DrawChart;
@@ -386,6 +388,67 @@ it('holds a decision on one of two proposals until the other is decided, then ru
         ->and($second->decisions())->toBe(['c1' => true, 'c2' => false])
         ->and(AgentTurn::query()->forConversation($conversation)->count())->toBe(1);
     Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $first->id);
+});
+
+it('reads a reply typed after a click on one of two proposals against the other, and runs both together (#44)', function () {
+    $user = $this->user();
+    actingAs($user);
+    Queue::fake();
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $conversation);
+
+    // Approve on Alpha waits; "No, leave them." then rejects Beta alone, the click standing.
+    $held = $turns->enqueue($conversation, $user, ['decisions' => ['c1' => true]], null, 'auto', null);
+    $turn = $turns->enqueue($conversation, $user, ['prompt' => 'No, leave them.', 'sync' => true], null, 'auto', null);
+
+    expect($turn->id)->toBe($held->id)
+        ->and($turn->status)->toBe(AgentTurn::PENDING)
+        ->and($turn->decisions())->toBe(['c1' => true, 'c2' => false])
+        ->and($turn->input['said'])->toBe('No, leave them.')
+        ->and($turn->decidedBy())->toBe('words')
+        ->and(ConversationMessage::query()->find($turn->message_id)?->content)->toBe('No, leave them.')
+        ->and(AgentTurn::query()->forConversation($conversation)->count())->toBe(1);
+    // Sent to run in the request (AgentRun, the email channel), so it does, though the click was not.
+    Queue::assertPushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $held->id && $job->connection === 'sync');
+});
+
+it('runs a click on one of two proposals, then a question typed instead of the other click, declining that one (#44)', function () {
+    $user = $this->user();
+    actingAs($user);
+    Event::fake([ProposalDecided::class]);
+    $store = app(AgentConversationStore::class);
+    $turns = app(AgentTurns::class);
+
+    $conversation = $store->startConversation($user, 'Retire Alpha and Beta');
+    pausedAnswer($user, $conversation);
+
+    $held = $turns->enqueue($conversation, $user, ['decisions' => ['c1' => true]], null, 'auto', null);
+    expect($held->status)->toBe(AgentTurn::QUEUED);
+
+    // The question declines Beta: the click runs first, then the question, in that order.
+    WidgetAgent::fake(['Alpha is retired.']);
+    $question = $turns->enqueue($conversation, $user, ['prompt' => "What happens to Beta's orders?"], null, 'auto', null);
+
+    expect($question->id)->not->toBe($held->id)
+        ->and($held->fresh()->status)->toBe(AgentTurn::DONE)
+        ->and($held->fresh()->decisions())->toBe(['c1' => true, 'c2' => false])
+        ->and($held->fresh()->input['superseded'])->toBe(['c2'])
+        ->and($question->fresh()->status)->toBe(AgentTurn::DONE);
+
+    WidgetAgent::assertPrompted(fn ($prompt) => $prompt->approvalDecisions?->get('c1')?->isApproved()
+        && $prompt->approvalDecisions->get('c2')?->isRejected()
+        && $prompt->approvalDecisions->get('c2')->result === AgentTurns::supersededResult());
+    // Beta was not decided, so only Alpha's click is reported.
+    Event::assertDispatchedTimes(ProposalDecided::class, 1);
+    Event::assertDispatched(ProposalDecided::class, fn (ProposalDecided $e) => $e->callId === 'c1' && $e->approved);
+
+    // The question is recorded after the answer to the click, and answered after it.
+    $rows = ConversationMessage::query()->where('conversation_id', $conversation)->where('content', '!=', '')->orderBy('id')->get(['role', 'content']);
+    expect($rows->pluck('content')->take(2)->all())->toBe(['Alpha is retired.', "What happens to Beta's orders?"])
+        ->and($rows->pluck('role')->all())->toBe(['assistant', 'user', 'assistant']);
 });
 
 it('runs a held decision in the request when the decision that completes it was sent to run there', function () {

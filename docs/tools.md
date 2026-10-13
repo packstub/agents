@@ -138,6 +138,8 @@ The turn records what decided it: `AgentTurn::decidedBy()` is `app`, `words` or 
 
 An answer that proposed two changes pauses on both. laravel/ai applies the decisions of one pause together, so a decision on one of them is held: the turn stays queued with what was decided so far, later decisions join it (`AgentTurns::enqueue()` merges them), and it starts once every proposal of that answer has one.
 
+A reply typed after deciding one of them is read against the proposals still undecided, and the decision already made stands. "No, leave them." after approving Alpha rejects Beta, and the turn runs with both. A question instead ("What happens to Beta's orders?") declines the undecided ones with the same note as above: the turn runs with the decision already made, then the question is answered after it. Your `decideTypedUsing()` rule receives only the undecided proposals.
+
 ## Errors
 
 Exceptions thrown from `run()` are handed back to the model as tool errors, never to the person as a crash:
