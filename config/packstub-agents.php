@@ -111,9 +111,21 @@ return [
     // and never approves what they reject; when it fails or is unsure the reply is a question of its own.
     'decision_classifier' => [
         'enabled' => (bool) env('AGENT_DECISION_CLASSIFIER', false),
-        // null = the provider of the model the reply was sent with, its cheapest model.
+        // agent = a side agent on your AI provider; jev = TypeSafe's Jev decision model (below), which sends the reply
+        // and the proposal questions to TypeSafe; or a class implementing Packstub\Agents\Contracts\DecisionClassifier.
+        'driver' => env('AGENT_DECISION_CLASSIFIER_DRIVER', 'agent'),
+        // The agent driver. null = the provider of the model the reply was sent with, its cheapest model.
         'provider' => env('AGENT_DECISION_CLASSIFIER_PROVIDER'),
         'model' => env('AGENT_DECISION_CLASSIFIER_MODEL'),
+        // A decision the classifier is less sure of than this (0 to 1) makes the reply a question. Only a driver that
+        // gives a confidence (jev) is held to it; null applies every decision.
+        'min_confidence' => env('AGENT_DECISION_CLASSIFIER_MIN_CONFIDENCE', 0.8),
+        'jev' => [
+            'key' => env('TYPESAFE_API_KEY'),
+            'url' => env('TYPESAFE_BASE_URL', 'https://api.typesafe.ai'),
+            'model' => env('TYPESAFE_DEFAULT_MODEL', 'jev-latest'),
+            'timeout' => 5, // seconds
+        ],
     ],
 
     // Redaction: secrets and personal data are replaced in what the assistant writes — on the answer while it
