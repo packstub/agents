@@ -134,7 +134,7 @@ What reads the reply, in order — the first that decides wins, and none decidin
    }
    ```
 
-The turn records what decided it: `AgentTurn::decidedBy()` is `app`, `words` or `classifier` (null for a question, or for decisions made with the buttons), and `decisionReason()` is the classifier's one-sentence reason.
+The turn records what decided it: `AgentTurn::decidedBy()` is `app`, `words` or `classifier` (null for a question, or for decisions made with the buttons), and `decisionReason()` is the classifier's one-sentence reason. When the classifier decided, `decisionDriver()` says which one read the reply (`agent`, `jev` or your class) and `decisionConfidence()` is the lowest confidence among the decisions it applied (null for the side agent, which gives none): the number to watch when you set `AGENT_DECISION_CLASSIFIER_MIN_CONFIDENCE`.
 
 An answer that proposed two changes pauses on both. laravel/ai applies the decisions of one pause together, so a decision on one of them is held: the turn stays queued with what was decided so far, later decisions join it (`AgentTurns::enqueue()` merges them), and it starts once every proposal of that answer has one.
 
