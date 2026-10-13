@@ -46,7 +46,12 @@ class AgentTurns
                 ->orderBy('id')->get()->first(fn (AgentTurn $t) => $t->decisions() !== null);
 
             if ($held) {
-                $held->forceFill(['input' => ['decisions' => [...$held->decisions(), ...$input['decisions']]]])->save();
+                // `sync` from either one: a decision made through AgentRun or a command runs here, not on a worker.
+                $held->forceFill(['input' => array_filter([
+                    ...$held->input,
+                    'decisions' => [...$held->decisions(), ...$input['decisions']],
+                    'sync' => ($held->input['sync'] ?? false) || ($input['sync'] ?? false) ? true : null,
+                ], fn ($v) => $v !== null)])->save();
                 $this->startNext($conversationId);
 
                 return $held->refresh();
@@ -264,11 +269,14 @@ class AgentTurns
                 );
 
                 if ($decided !== null) {
+                    // The decision keeps `sync`: a reply typed through AgentRun, a command or the email channel runs here,
+                    // as its question would have, instead of waiting for a worker.
                     $turn->forceFill(['input' => array_filter([
                         'decisions' => $decided['decisions'],
                         'said' => $turn->prompt(),
                         'decided_by' => $decided['by'],
                         'decision_reason' => $decided['reason'],
+                        'sync' => ($turn->input['sync'] ?? false) ? true : null,
                     ], fn ($v) => $v !== null)]);
                 }
             }
