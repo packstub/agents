@@ -234,9 +234,9 @@ it('adds the provider\'s web search when switched on, held to the allow-list, wi
     $step = fn (string $provider) => new PendingStep(0, false, $provider, 'a-model', null, [], $tools, null, null);
     $kept = fn (string $provider) => collect((new SupportedProviderTools)->handle($step($provider), fn (PendingStep $s) => $s)->tools)->map(fn ($tool) => class_basename($tool))->all();
 
-    expect($kept('openai'))->toBe(['McpServerTool', 'ApprovableTool', 'McpServerTool', 'WebSearch', 'FileSearch'])
-        ->and($kept('anthropic'))->toBe(['McpServerTool', 'ApprovableTool', 'McpServerTool', 'WebSearch']) // no file search on Anthropic
-        ->and($kept('ollama'))->toBe(['McpServerTool', 'ApprovableTool', 'McpServerTool']);
+    expect($kept('openai'))->toBe(['TurnTool', 'ApprovableTool', 'TurnTool', 'WebSearch', 'FileSearch'])
+        ->and($kept('anthropic'))->toBe(['TurnTool', 'ApprovableTool', 'TurnTool', 'WebSearch']) // no file search on Anthropic
+        ->and($kept('ollama'))->toBe(['TurnTool', 'ApprovableTool', 'TurnTool']);
 });
 
 it('lists the pages an answer cites and the searches the provider ran, and says on the status line that it is searching', function () {

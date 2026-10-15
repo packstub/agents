@@ -6,7 +6,6 @@ use Illuminate\Support\Str;
 use Laravel\Ai\Approvals\Approval;
 use Laravel\Ai\Concerns\InteractsWithApprovals;
 use Laravel\Ai\Contracts\Approvable;
-use Laravel\Ai\Tools\McpServerTool;
 use Laravel\Ai\Tools\Request;
 use Packstub\Agents\Mcp\AgentTool;
 use Throwable;
@@ -19,7 +18,7 @@ use Throwable;
  * change. The question is the approval's reason, so any client reading the
  * pending approvals gets the same sentence.
  */
-class ApprovableTool extends McpServerTool implements Approvable
+class ApprovableTool extends TurnTool implements Approvable
 {
     use InteractsWithApprovals;
 

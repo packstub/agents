@@ -69,7 +69,10 @@ Every turn leaves a record on its `agent_turns` row (`Packstub\Agents\Models\Age
 Ended turns are kept for `chat.keep_turns_days` (`AGENT_KEEP_TURNS_DAYS`, 90; `null` keeps them forever) and pruned by Laravel's model pruning — add the model to your schedule:
 
 ```php
-Schedule::command('model:prune', ['--model' => [\Packstub\Agents\Models\AgentTurn::class]])->daily();
+Schedule::command('model:prune', ['--model' => [
+    \Packstub\Agents\Models\AgentTurn::class,
+    \Packstub\Agents\Models\AgentToolCall::class, // the tool call log, after tool_log.keep_days
+]])->daily();
 ```
 
 The rows live with the conversations (`ai.conversations.connection`); in a database-per-tenant app that is the tenant database.

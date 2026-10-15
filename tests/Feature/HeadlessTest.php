@@ -14,6 +14,7 @@ use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Jobs\RunAgentTurn;
 use Packstub\Agents\Mcp\Tools\DrawChart;
 use Packstub\Agents\Models\AgentLimit;
+use Packstub\Agents\Models\AgentToolCall;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentBudget;
 use Packstub\Agents\Support\AgentConversationStore;
@@ -444,6 +445,11 @@ it('runs a click on one of two proposals, then a question typed instead of the o
     // Beta was not decided, so only Alpha's click is reported.
     Event::assertDispatchedTimes(ProposalDecided::class, 1);
     Event::assertDispatched(ProposalDecided::class, fn (ProposalDecided $e) => $e->callId === 'c1' && $e->approved);
+    // The tool log has both: Alpha approved, Beta superseded by the question (and never run).
+    expect(AgentToolCall::query()->orderBy('call_id')->get(['call_id', 'status', 'decision'])->toArray())->toBe([
+        ['call_id' => 'c1', 'status' => AgentToolCall::APPROVED, 'decision' => 'approved'],
+        ['call_id' => 'c2', 'status' => AgentToolCall::REJECTED, 'decision' => 'superseded'],
+    ]);
 
     // The question is recorded after the answer to the click, and answered after it.
     $rows = ConversationMessage::query()->where('conversation_id', $conversation)->where('content', '!=', '')->orderBy('id')->get(['role', 'content']);

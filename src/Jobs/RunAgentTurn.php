@@ -17,6 +17,7 @@ use Laravel\Ai\Streaming\Events\ReasoningDelta;
 use Laravel\Ai\Streaming\Events\StreamEnd;
 use Laravel\Ai\Streaming\Events\StreamStart;
 use Laravel\Ai\Streaming\Events\TextDelta;
+use Laravel\Ai\Streaming\Events\ToolApprovalRequest;
 use Laravel\Ai\Streaming\Events\ToolCall;
 use Laravel\Ai\Streaming\Events\ToolResult;
 use Packstub\Agents\Ai\Side\ClassifierAgent;
@@ -34,6 +35,7 @@ use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentModels;
 use Packstub\Agents\Support\AgentRedactor;
 use Packstub\Agents\Support\AgentRuntime;
+use Packstub\Agents\Support\AgentToolLog;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Support\PageContext;
 use Throwable;
@@ -82,8 +84,13 @@ class RunAgentTurn implements ShouldQueue
                 return;
             }
 
+            // The tool calls that follow are this turn's, in the tool log.
+            app(AgentToolLog::class)->during($turn);
+
             $this->run($turn, $turns);
         } finally {
+            app(AgentToolLog::class)->during(null);
+
             if (isset($turn)) {
                 $turns->startNext($turn->conversation_id);
             }
@@ -204,9 +211,20 @@ class RunAgentTurn implements ShouldQueue
             }
 
             $pending = $store->pendingCalls($turn->conversation_id, $user);
+            $log = app(AgentToolLog::class);
 
-            foreach (array_diff_key($turn->decisions(), array_flip($superseded)) as $callId => $approved) {
-                ProposalDecided::dispatch($turn, (string) $callId, (string) ($pending[$callId]['name'] ?? ''), (array) ($pending[$callId]['arguments'] ?? []), (bool) $approved);
+            foreach ($turn->decisions() as $callId => $approved) {
+                $callId = (string) $callId;
+                [$name, $arguments] = [(string) ($pending[$callId]['name'] ?? ''), (array) ($pending[$callId]['arguments'] ?? [])];
+
+                if (in_array($callId, $superseded, true)) {
+                    $log->decided($turn, $callId, $name, $arguments, 'superseded');
+
+                    continue;
+                }
+
+                $log->decided($turn, $callId, $name, $arguments, $approved ? 'approved' : 'rejected');
+                ProposalDecided::dispatch($turn, $callId, $name, $arguments, (bool) $approved);
             }
         }
 
@@ -275,8 +293,14 @@ class RunAgentTurn implements ShouldQueue
                     $tools[] = $event->toolCall->name;
                     $status = __(':tool…', ['tool' => Str::headline($event->toolCall->name)]);
                     $turns->snapshot($turn, $redactor->streaming($buffer), $status, $tools);
+                    app(AgentToolLog::class)->called($turn, $event->toolCall);
                     ToolCalled::dispatch($turn, $event->toolCall->id, $event->toolCall->name, $event->toolCall->arguments);
                     $wrote = true;
+                } elseif ($event instanceof ToolApprovalRequest) {
+                    // The writes the person decides on: the question each one waits under, in the tool log.
+                    foreach ($event->pendingApprovals as $approval) {
+                        app(AgentToolLog::class)->proposed($turn, $approval);
+                    }
                 } elseif ($event instanceof ToolResult && ! $event->preliminary) { // a sub-agent's progress is preliminary: not a result yet
                     $status = __('Thinking…');
                     if ($buffer !== '') {

@@ -109,7 +109,7 @@ abstract class Agent implements AgentContract, Conversational, HasMiddleware, Ha
             }
 
             $readOnly = $tool instanceof AgentTool ? $tool->isReadOnly() : AgentTool::hasReadOnlyAnnotation($tool);
-            $tools[] = $readOnly ? new McpServerTool($tool) : new ApprovableTool($tool);
+            $tools[] = $readOnly ? new TurnTool($tool) : new ApprovableTool($tool);
         }
 
         return [...$tools, ...$this->providerTools()];
