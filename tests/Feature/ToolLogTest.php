@@ -96,7 +96,7 @@ it('records a chat write from the model\'s call through the person\'s approval t
     expect(json_decode($answer, true)['renamed'])->toBeTrue()
         ->and(AgentToolCall::query()->count())->toBe(1)
         ->and($row)->toMatchArray(['status' => AgentToolCall::SUCCEEDED, 'ability' => 'widgets.manage', 'token_id' => null, 'error' => null, 'refused_by' => null])
-        ->and($row->result)->toBe(json_decode($answer, true))
+        ->and($row->result)->toEqual(json_decode($answer, true)) // MySQL keeps JSON keys in its own order
         ->and($row->duration_ms)->toBeInt()
         ->and($row->started_at)->not->toBeNull()
         ->and($row->finished_at)->not->toBeNull()
