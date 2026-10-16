@@ -584,10 +584,27 @@ class AgentTurns
      */
     public function reconcile(string $conversationId): void
     {
-        AgentTurn::query()
+        $before = now()->subSeconds(self::jobTimeout() + 60);
+
+        // Read first, then update by key: this runs on every poll and render of a chat, and an UPDATE over the
+        // conversation's active turns locks the running one (its conversation_id/status index entry, then the row)
+        // even when nothing is stale, while the job finishing that turn locks the row, then the index entry. A poll
+        // at that moment deadlocked with it (MySQL/MariaDB) and the finished answer was lost. A plain read takes no
+        // locks, and an update by key locks in the job's order.
+        $stale = AgentTurn::query()
             ->forConversation($conversationId)
             ->active()
-            ->where('updated_at', '<', now()->subSeconds(self::jobTimeout() + 60))
+            ->where('updated_at', '<', $before)
+            ->pluck('id');
+
+        if ($stale->isEmpty()) {
+            return;
+        }
+
+        AgentTurn::query()
+            ->whereKey($stale)
+            ->active() // a turn that finished meanwhile is left as it is
+            ->where('updated_at', '<', $before)
             ->update([
                 'status' => AgentTurn::FAILED,
                 'error' => __('The answer was interrupted — the worker stopped before it was done.'),

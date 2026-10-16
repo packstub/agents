@@ -2,6 +2,12 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+### Fixed
+
+- **A chat polled while its turn finished no longer deadlocks with it.** `AgentTurns::reconcile()` — run on every poll and render to fail the turns of a worker that died — was one `UPDATE` over the conversation's active turns. It locked the running turn even when nothing was stale, in the opposite order to the job saving the finished turn; on MySQL/MariaDB a poll at that moment deadlocked with it, and the answer was lost (the turn ended `failed` with the deadlock as its error). The stale turns are now read first and only those are updated, by key: a normal poll writes nothing.
+
 ## 1.10.0 — 2026-10-13
 
 ### Added
