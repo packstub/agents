@@ -9,6 +9,8 @@ use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Responses\Data\ToolCall;
 use Laravel\Ai\Tools\Request as AiRequest;
 use Laravel\Mcp\Request;
+use Laravel\Mcp\Response;
+use Laravel\Mcp\Server\Tool;
 use Packstub\Agents\Ai\ApprovableTool;
 use Packstub\Agents\Ai\TurnTool;
 use Packstub\Agents\Facades\Agents;
@@ -161,6 +163,48 @@ it('records a read the model ran in a turn as succeeded, with what the model rea
         'call_id' => 'r1', 'channel' => 'agent', 'turn_id' => $turn->id, 'tool' => 'list-widgets', 'ability' => 'widgets.view',
         'arguments' => ['limit' => 1], 'status' => AgentToolCall::SUCCEEDED, 'result' => json_decode($answer, true),
     ]);
+});
+
+it('ends the row of a plain laravel/mcp tool a turn ran, with its result or its error', function () {
+    $user = $this->user();
+    actingAs($user);
+    [, $turn] = proposal($user, $this->widgets()[0]);
+    $log = app(AgentToolLog::class);
+    $echo = new class extends Tool
+    {
+        protected string $name = 'echo';
+
+        public function handle(Request $request): Response
+        {
+            return Response::text('Said: '.$request->get('text'));
+        }
+    };
+    $broken = new class extends Tool
+    {
+        protected string $name = 'broken';
+
+        public function handle(Request $request): Response
+        {
+            throw new RuntimeException('Down for maintenance.');
+        }
+    };
+
+    $log->during($turn);
+    $log->called($turn, new ToolCall('p1', 'echo', ['text' => 'hi']));
+    $answer = (new TurnTool($echo))->handle(new AiRequest(['text' => 'hi'], 'p1'));
+    $log->called($turn, new ToolCall('p2', 'broken', []));
+    expect(fn () => (new TurnTool($broken))->handle(new AiRequest([], 'p2')))->toThrow(RuntimeException::class, 'Down for maintenance.');
+    $log->during(null);
+
+    expect($answer)->toBe('Said: hi')
+        ->and(AgentToolCall::query()->where('call_id', 'p1')->sole())->toMatchArray([
+            'channel' => 'agent', 'turn_id' => $turn->id, 'tool' => 'echo', 'ability' => null, 'arguments' => ['text' => 'hi'],
+            'status' => AgentToolCall::SUCCEEDED, 'result' => ['text' => 'Said: hi'],
+        ])
+        ->and(AgentToolCall::query()->where('call_id', 'p2')->sole())->toMatchArray([
+            'tool' => 'broken', 'status' => AgentToolCall::FAILED, 'error' => 'Down for maintenance.',
+        ])
+        ->and(AgentToolCall::query()->whereIn('status', AgentToolCall::OPEN)->count())->toBe(0);
 });
 
 it('records MCP calls with the access token, and keeps them when the conversation is deleted', function () {

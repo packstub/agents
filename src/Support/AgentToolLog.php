@@ -18,9 +18,9 @@ use Packstub\Agents\Models\AgentTurn;
  * MCP client alike. RunAgentTurn says which turn is running and what the
  * model asked for, proposed and was told; the turn's tool bridge (TurnTool)
  * says which call is under way; AgentTool::handle() records the checks and
- * the outcome. A row is found again by its call id inside its conversation,
- * and only while it is open, so a provider that repeats an id starts a new
- * row. Arguments and results are redacted (config `redact`) and capped at
+ * the outcome (TurnTool does, for any other laravel/mcp tool). A row is found
+ * again by its call id inside its conversation, and only while it is open, so
+ * a provider that repeats an id starts a new row. Arguments and results are redacted (config `redact`) and capped at
  * tool_log.max_bytes. A write that fails is reported and never fails the call.
  */
 class AgentToolLog
@@ -102,15 +102,16 @@ class AgentToolLog
     }
 
     /**
-     * The call reached the tool (AgentTool::handle()): the row it continues, or a new one for an MCP or direct call.
+     * The call reached the tool (AgentTool::handle(), or TurnTool for any other laravel/mcp tool): the row it
+     * continues, or a new one for an MCP or direct call.
      *
      * @param  array<string, mixed>  $arguments
      */
-    public function start(AgentTool $tool, ?string $ability, array $arguments): ?AgentToolCall
+    public function start(string $tool, ?string $ability, array $arguments): ?AgentToolCall
     {
         return $this->write(function () use ($tool, $ability, $arguments) {
             $row = $this->callId !== null ? $this->open($this->turn?->conversation_id, $this->callId) : null;
-            $row ??= $this->create($this->callId ?? (string) Str::uuid7(), $tool->name(), $arguments, AgentToolCall::RUNNING, $this->turn);
+            $row ??= $this->create($this->callId ?? (string) Str::uuid7(), $tool, $arguments, AgentToolCall::RUNNING, $this->turn);
 
             $token = AgentTool::accessToken();
             $row->update(['status' => AgentToolCall::RUNNING, 'ability' => $ability, 'token_id' => $token instanceof Model ? $token->getKey() : null, 'started_at' => now()]);

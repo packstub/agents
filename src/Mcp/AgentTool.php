@@ -48,7 +48,7 @@ abstract class AgentTool extends Tool
     {
         // Every call is on record (config `tool_log`): the checks, then how it ended with what the model read.
         $log = app(AgentToolLog::class);
-        $call = $log->start($this, $this->ability, $request->all());
+        $call = $log->start($this->name(), $this->ability, $request->all());
 
         if (($refused = $this->callRefusal()) !== null) {
             [$refusal, $by] = $refused;
