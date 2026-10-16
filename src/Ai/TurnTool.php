@@ -17,6 +17,9 @@ use Throwable;
  */
 class TurnTool extends McpServerTool
 {
+    /** Whether the tool's last response was an error (laravel/ai hands it to the model as text, without throwing). */
+    protected bool $answeredWithError = false;
+
     public function handle(Request $request): string
     {
         $log = app(AgentToolLog::class);
@@ -28,6 +31,7 @@ class TurnTool extends McpServerTool
 
             $call = $log->start($this->tool->name(), null, $request->toArray());
             $startedAt = microtime(true);
+            $this->answeredWithError = false;
 
             try {
                 $output = parent::handle($request);
@@ -37,10 +41,23 @@ class TurnTool extends McpServerTool
                 throw $e;
             }
 
+            if ($this->answeredWithError) {
+                $log->failed($call, $output, $startedAt);
+
+                return $output;
+            }
+
             $result = json_decode($output, true);
             $log->succeeded($call, is_array($result) ? $result : ['text' => $output], $startedAt);
 
             return $output;
         });
+    }
+
+    protected function errorMessage(string $text): string
+    {
+        $this->answeredWithError = true;
+
+        return parent::errorMessage($text);
     }
 }
