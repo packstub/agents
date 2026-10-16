@@ -302,6 +302,7 @@ class RunAgentTurn implements ShouldQueue
                         app(AgentToolLog::class)->proposed($turn, $approval);
                     }
                 } elseif ($event instanceof ToolResult && ! $event->preliminary) { // a sub-agent's progress is preliminary: not a result yet
+                    app(AgentToolLog::class)->answered($turn, $event->toolResult);
                     $status = __('Thinking…');
                     if ($buffer !== '') {
                         $buffer .= "\n\n";

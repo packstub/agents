@@ -7,6 +7,7 @@ use Laravel\Ai\Approvals\PendingApproval;
 use Laravel\Ai\Enums\MessageStatus;
 use Laravel\Ai\Models\ConversationMessage;
 use Laravel\Ai\Responses\Data\ToolCall;
+use Laravel\Ai\Responses\Data\ToolResult;
 use Laravel\Ai\Tools\Request as AiRequest;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -179,6 +180,15 @@ it('ends the row of a plain laravel/mcp tool a turn ran, with its result or its 
             return Response::text('Said: '.$request->get('text'));
         }
     };
+    $soldOut = new class extends Tool
+    {
+        protected string $name = 'sold-out';
+
+        public function handle(Request $request): Response
+        {
+            return Response::error('Out of stock.');
+        }
+    };
     $broken = new class extends Tool
     {
         protected string $name = 'broken';
@@ -192,6 +202,8 @@ it('ends the row of a plain laravel/mcp tool a turn ran, with its result or its 
     $log->during($turn);
     $log->called($turn, new ToolCall('p1', 'echo', ['text' => 'hi']));
     $answer = (new TurnTool($echo))->handle(new AiRequest(['text' => 'hi'], 'p1'));
+    $log->called($turn, new ToolCall('p3', 'sold-out', []));
+    $refusal = (new TurnTool($soldOut))->handle(new AiRequest([], 'p3'));
     $log->called($turn, new ToolCall('p2', 'broken', []));
     expect(fn () => (new TurnTool($broken))->handle(new AiRequest([], 'p2')))->toThrow(RuntimeException::class, 'Down for maintenance.');
     $log->during(null);
@@ -204,6 +216,11 @@ it('ends the row of a plain laravel/mcp tool a turn ran, with its result or its 
         ->and(AgentToolCall::query()->where('call_id', 'p2')->sole())->toMatchArray([
             'tool' => 'broken', 'status' => AgentToolCall::FAILED, 'error' => 'Down for maintenance.',
         ])
+        // laravel/ai hands an error response to the model as text, without throwing: still a failed call.
+        ->and(AgentToolCall::query()->where('call_id', 'p3')->sole())->toMatchArray([
+            'tool' => 'sold-out', 'status' => AgentToolCall::FAILED, 'error' => $refusal, 'result' => null,
+        ])
+        ->and($refusal)->toBe('MCP tool error: Out of stock.')
         ->and(AgentToolCall::query()->whereIn('status', AgentToolCall::OPEN)->count())->toBe(0);
 });
 
@@ -353,4 +370,46 @@ it('records what a turn streams: the read it ran, the write it proposed, then th
     // Under a fake laravel/ai does not run the approved call; the bridge's part is the first test's.
     expect($write->fresh())->toMatchArray(['status' => AgentToolCall::APPROVED, 'decision' => 'approved', 'turn_id' => $asked->id])
         ->and(AgentToolCall::query()->count())->toBe(2);
+});
+
+it('records a proposal a typed question superseded as superseded and finished, without it ever running', function () {
+    $user = $this->user();
+    actingAs($user);
+    [$alpha] = $this->widgets();
+    [$conversation, $proposing] = proposal($user, $alpha);
+    app(AgentToolLog::class)->proposed($proposing, new PendingApproval('c1', 'rename-widget', ['id' => $alpha->id, 'name' => 'Alpha II'], 'Rename?'));
+
+    WidgetAgent::fake(['There are two widgets.']);
+    $asked = AgentChat::for($user, $conversation)->send('How many widgets are there?');
+
+    $row = AgentToolCall::query()->sole();
+    expect($asked->fresh()->status)->toBe(AgentTurn::DONE)
+        ->and($row)->toMatchArray(['status' => AgentToolCall::REJECTED, 'decision' => 'superseded', 'turn_id' => $proposing->id, 'result' => null])
+        ->and($row->decided_at)->not->toBeNull()
+        ->and($row->finished_at)->not->toBeNull()
+        ->and($alpha->fresh()->name)->toBe('Alpha');
+});
+
+it('ends a call that never reached a tool with what the model read, and leaves a call that ran alone', function () {
+    $user = $this->user();
+    actingAs($user);
+    [, $turn] = proposal($user, $this->widgets()[0]);
+    Abilities::$allowed = ['widgets.view'];
+    $log = app(AgentToolLog::class);
+
+    // The model named a tool that does not exist, or ran out of steps: laravel/ai answers the call without running it.
+    $log->called($turn, new ToolCall('m1', 'missing', []));
+    $log->answered($turn, new ToolResult('m1', 'missing', [], "Tool 'missing' does not exist.", failed: true));
+
+    $log->during($turn);
+    $log->called($turn, new ToolCall('r1', 'list-widgets', ['limit' => 1]));
+    $answer = (new TurnTool(app(ListWidgets::class)))->handle(new AiRequest(['limit' => 1], 'r1'));
+    $log->answered($turn, new ToolResult('r1', 'list-widgets', ['limit' => 1], $answer));
+    $log->during(null);
+
+    expect(AgentToolCall::query()->where('call_id', 'm1')->sole())->toMatchArray([
+        'tool' => 'missing', 'status' => AgentToolCall::FAILED, 'error' => "Tool 'missing' does not exist.", 'started_at' => null,
+    ])
+        ->and(AgentToolCall::query()->where('call_id', 'm1')->sole()->finished_at)->not->toBeNull()
+        ->and(AgentToolCall::query()->where('call_id', 'r1')->sole())->toMatchArray(['status' => AgentToolCall::SUCCEEDED, 'error' => null]);
 });

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use Laravel\Ai\Approvals\PendingApproval;
 use Laravel\Ai\Responses\Data\ToolCall;
+use Laravel\Ai\Responses\Data\ToolResult;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Mcp\AgentTool;
 use Packstub\Agents\Models\AgentToolCall;
@@ -98,6 +99,22 @@ class AgentToolLog
                 'decided_at' => now(),
                 'finished_at' => $approved ? null : now(),
             ]);
+        });
+    }
+
+    /**
+     * The turn read a call's result (the stream's ToolResult). A row still at `called` never reached the tool —
+     * the model named a tool that does not exist, or ran out of steps — so it ends here, failed with what the
+     * model read; a call that ran has ended already.
+     */
+    public function answered(AgentTurn $turn, ToolResult $result): void
+    {
+        $this->write(function () use ($turn, $result) {
+            $row = $this->open($turn->conversation_id, $result->id);
+
+            if ($row?->status === AgentToolCall::CALLED && ! $result->successful()) {
+                $row->update(['status' => AgentToolCall::FAILED, 'error' => app(AgentRedactor::class)->redact($result->text()), 'finished_at' => now()]);
+            }
         });
     }
 
