@@ -290,6 +290,10 @@ class AgentTurns
 
                 if ($pending !== [] && $decided === null) {
                     $store->declinePending($conversationId, $participant, self::supersededResult());
+
+                    foreach ($pending as $callId => $call) {
+                        app(AgentToolLog::class)->decided($turn, (string) $callId, (string) $call['name'], (array) $call['arguments'], 'superseded');
+                    }
                 }
 
                 $messageId = $this->storeQuestionOf($conversationId, $participant, $turn->input, $turn->context);

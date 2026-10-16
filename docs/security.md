@@ -20,7 +20,7 @@ This package lets a language model read and, with approval or a write token, cha
 - **A token can be narrowed to named tools.** `tool:{name}` abilities limit a token to exactly those tools: the others are not listed and are refused by name. The role is checked first on every call, so a token never widens what the person may do, only narrows it.
 - **Tokens are bound to a person and, with tenancy, to a workspace, and can expire.** They are Sanctum tokens: hashed at rest, listed and revocable through `$user->tokens()`, with an optional `expires_at`. The `tenant:{slug}` ability is checked against the URL, so a token minted for one workspace is refused on another even when the person is a member of both.
 - **The MCP request runs as any request of the person would.** `AuthenticateAgent` resolves the user, the guard and the workspace before any tool runs and enters the workspace through your `enteringTenant()` hook (Filament's `TenantSet` in a panel), so tenancy layers, scopes and policies see the same state as elsewhere.
-- **Every decision is an event.** Each call fires `Packstub\Agents\Events\ToolAuthorized` before the tool runs, from the chat and from MCP clients: the tool, its ability, the arguments, `allowed`, and for a refusal its message and `refusedBy` (`workspace`, `role` or `token`). Listen to it to log refusals or alert on them; the tool list, checked on every listing, does not fire it.
+- **Every decision is an event.** Each call fires `Packstub\Agents\Events\ToolAuthorized` before the tool runs, from the chat and from MCP clients: the tool, its ability, the arguments, `allowed`, and for a refusal its message and `refusedBy` (`workspace`, `role` or `token`). Listen to it to log refusals or alert on them; the tool list, checked on every listing, does not fire it. Every call, refusals included, is also on record in [the tool call log](#the-tool-call-log).
 - **Errors never leak stack traces.** Domain exceptions become tool errors with their message; unexpected exceptions are reported and the model gets a generic failure.
 - **Budgets are enforced before the provider is called.** Rate, daily and monthly limits per workspace and per user, and a prompt length cap, see [Budgets and limits](budgets-and-limits.md).
 - **Conversations are private to their participant.** The conversation store scopes them to the person, and the poll endpoint returns 404 for anyone else's.
@@ -98,16 +98,64 @@ Where it runs:
 - **On the answer while it streams.** Every snapshot a chat surface reads, by poll or by event stream, is redacted, and the piece still being written is held back: a run of digits that may become a card number, a word that may become a key. A value is shown replaced once it is whole, never shown and then taken back. A pattern of your own that spans several words cannot be held back that way and is replaced as soon as it is complete.
 - **On the stored answer.** Its text, each step's text and reasoning, a stopped answer, the turn's record.
 - **On the tool results kept with the answer**, which the model reads again as history on the next turn. A JSON result is redacted value by value, so it stays JSON and a chart or a table is still read from it.
+- **On [the tool call log](#the-tool-call-log)**: the arguments, the result and the error of every call, MCP calls included.
 
 A turn that had something replaced writes one `critical` log line and fires `Packstub\Agents\Events\OutputRedacted` with the kinds (`card`, `api_key`, a pattern's label, `custom`), the turn and the conversation, never the values: a secret in an answer means a tool returned it, and that is the thing to fix.
 
 What it does not cover: the question the person typed (it is theirs), the tool result the model reads inside the turn that produced it (the model needs the data to answer; what it then writes is redacted), and results returned to an MCP client, which acts as the token's owner. Redaction is the net, not the rule: keep secrets out of tool results in the first place. To keep a field away from the model as well, change the result before it is read with [`Agents::mapToolResultsUsing()`](tools.md#changing-a-result-before-the-model-reads-it).
 
+## The tool call log
+
+Every tool call is on record in `agent_tool_calls` (`Packstub\Agents\Models\AgentToolCall`), one row per call, from the chat (and `AgentRun`, the commands, the email channel) and from MCP clients alike. When something went wrong, the row says what the agent actually ran:
+
+| Column | What it holds |
+| --- | --- |
+| `channel` | `agent` (a turn), `mcp` (an MCP client) or `direct` (your code called the tool's `handle()`) |
+| `call_id`, `turn_id`, `conversation_id` | the provider's call id and the turn and chat it belongs to; an MCP call gets a generated id and neither |
+| `participant_type`, `participant_id`, `token_id`, `tenant`, `panel` | who ran it, with which agent access token (MCP), in which workspace |
+| `tool`, `ability`, `arguments` | the call as the model sent it |
+| `status` | `succeeded`, `failed`, `refused` or `rejected` once the call ended; `called`, `proposed`, `approved` or `running` while it has not |
+| `question`, `decision`, `decided_by`, `decided_at` | for a write proposed in the chat: the question the person saw, `approved`, `rejected` or `superseded` (a question typed instead of deciding), and how — `words`, `classifier`, `app`, or `null` for the buttons or a `decide()` call |
+| `refused_by`, `error` | which check refused it (`workspace`, `role`, `token`) with the message, or the error the model read |
+| `result`, `duration_ms`, `started_at`, `finished_at` | the result the model read, after `Agents::mapToolResultsUsing()`, and how long the tool took |
+
+A write in the chat keeps one row from the model's call through the decision to the result, so the approval sits next to what the call did. A call that never reached a tool (the model named one that does not exist, or ran out of steps) ends as `failed` with the message the model read and no `started_at`. A row is not changed again once the call ended, it stays when its conversation is deleted, and it lives with the conversations (`ai.conversations.connection`, the tenant database in a database-per-tenant app). Arguments, results and errors are [redacted](#redaction) when redaction is on, and an argument or result larger than `tool_log.max_bytes` (64 KB) keeps its first bytes as `['truncated' => true, 'bytes' => …, 'excerpt' => …]`. A write to the log that fails is reported and never fails the call. A tool that extends `AgentTool` is on record from every channel; a plain laravel/mcp tool in your list is on record when a turn runs it, not when an MCP client calls it.
+
+```php
+'tool_log' => [
+    'enabled' => env('AGENT_TOOL_LOG', true),
+    'results' => env('AGENT_TOOL_LOG_RESULTS', true), // false keeps the outcome without the result
+    'max_bytes' => env('AGENT_TOOL_LOG_MAX_BYTES', 65536),
+    'keep_days' => env('AGENT_TOOL_LOG_KEEP_DAYS', 90), // null keeps every row
+],
+```
+
+Rows older than `keep_days` are pruned by Laravel's model pruning; add the model to your schedule:
+
+```php
+Schedule::command('model:prune', ['--model' => [
+    \Packstub\Agents\Models\AgentTurn::class,
+    \Packstub\Agents\Models\AgentToolCall::class,
+]])->daily();
+```
+
+```php
+use Packstub\Agents\Models\AgentToolCall;
+
+// What did the agent change for this person last week, and who approved it?
+AgentToolCall::query()
+    ->where('participant_id', $user->id)
+    ->whereIn('status', [AgentToolCall::SUCCEEDED, AgentToolCall::FAILED])
+    ->where('created_at', '>=', now()->subWeek())
+    ->latest()
+    ->get(['tool', 'arguments', 'decision', 'decided_at', 'status', 'error']);
+```
+
 ## Data sent to the provider
 
 The prompt contains the persona and domain text, the working rules, the dynamic context (date, workspace name, the person's name and role, the locale, and the compact summary of the record the chat was opened from) and the tool results your tools return. Nothing else. The `agent_conversation_messages` table stores the same. Keep secrets, tokens and payment identifiers out of `agentSummary()` and out of tool results; the model does not need them, and a person reading the chat later should not see them either ([Redaction](#redaction) catches what slips through). With [web search](tools.md#web-search) on, the provider also runs the searches the model asks for, within your allow-list.
 
-Tool results and the conversation are stored in your database, in the tenant's database with database-per-tenant apps, and are subject to your retention policy. There is no built-in pruning of conversations; `laravel/ai`'s conversation models are ordinary Eloquent models. Ended turns are pruned after `chat.keep_turns_days`.
+Tool results and the conversation are stored in your database, in the tenant's database with database-per-tenant apps, and are subject to your retention policy. There is no built-in pruning of conversations; `laravel/ai`'s conversation models are ordinary Eloquent models. Ended turns are pruned after `chat.keep_turns_days`, and [the tool call log](#the-tool-call-log), which keeps the arguments and results after a conversation is deleted, after `tool_log.keep_days`.
 
 ## Reporting
 

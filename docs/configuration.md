@@ -66,6 +66,10 @@
 | `email.from` | `null` | `AGENT_EMAIL_FROM` | the reply's sender; `null` = the app's `mail.from` |
 | `email.middleware` | `['api']` | | the webhook route's middleware, before the secret check |
 | `log.channel` | `null` | `AGENT_LOG_CHANNEL` | the log channel that gets one line per ended turn (provider, model, tokens, tools, duration, how it ended); `null` logs nothing. See [What each turn cost](budgets-and-limits.md#what-each-turn-cost) |
+| `tool_log.enabled` | `true` | `AGENT_TOOL_LOG` | one `agent_tool_calls` row per tool call, chat and MCP, see [The tool call log](security.md#the-tool-call-log) |
+| `tool_log.results` | `true` | `AGENT_TOOL_LOG_RESULTS` | keep the result the model read; `false` keeps the outcome alone |
+| `tool_log.max_bytes` | `65536` | `AGENT_TOOL_LOG_MAX_BYTES` | arguments or a result larger than this as JSON keep their first bytes, marked `truncated` |
+| `tool_log.keep_days` | `90` | `AGENT_TOOL_LOG_KEEP_DAYS` | how long rows are kept; `null` keeps them; pruned by `model:prune --model=Packstub\Agents\Models\AgentToolCall` |
 | `limits.*` | see [Budgets and limits](budgets-and-limits.md) | `AGENT_TURNS_PER_MINUTE`, `AGENT_TURNS_PER_DAY`, `AGENT_TOKENS_PER_DAY`, `AGENT_TOKENS_PER_MONTH`, `AGENT_USER_TOKENS_PER_DAY`, `AGENT_USER_TOKENS_PER_MONTH`, `AGENT_PROMPT_MAX_CHARS` | the platform ceiling |
 | `limits_connection` | `null` | `AGENT_LIMITS_CONNECTION` | the connection of the `agent_limits` table (the central one in a database-per-tenant app) |
 | `mcp.enabled` | `true` | `AGENT_MCP_ENABLED` | the MCP endpoint |

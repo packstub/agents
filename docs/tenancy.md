@@ -93,7 +93,7 @@ By default the package runs its migrations from the vendor directory. In a datab
 | Table | Where | Why |
 | --- | --- | --- |
 | `agent_limits` | central | limits are the operator's |
-| `agent_conversations`, `agent_conversation_messages`, `agent_message_feedback`, `agent_conversation_summaries`, `agent_turns` | tenant | one workspace never sees another's conversations, and an export or restore carries them along; the turn job reads its row on the workspace's connection |
+| `agent_conversations`, `agent_conversation_messages`, `agent_message_feedback`, `agent_conversation_summaries`, `agent_turns`, `agent_tool_calls` | tenant | one workspace never sees another's conversations, and an export or restore carries them along; the turn job reads its row on the workspace's connection |
 
 So:
 
@@ -107,7 +107,7 @@ So:
 php artisan vendor:publish --tag=packstub-agents-migrations
 ```
 
-Keep `create_agent_limits_table` with your central migrations and move `create_agent_chat_tables`, `create_agent_conversation_summaries_table` and `create_agent_turns_table` next to your tenant migrations. `AgentLimit` reads `limits_connection`, so limits are edited from the central side; `agent_turns` is then a tenant table, read inside the workspace.
+Keep `create_agent_limits_table` with your central migrations and move `create_agent_chat_tables`, `create_agent_conversation_summaries_table`, `create_agent_turns_table` and `create_agent_tool_calls_table` next to your tenant migrations. `AgentLimit` reads `limits_connection`, so limits are edited from the central side; `agent_turns` is then a tenant table, read inside the workspace.
 
 ## What follows the workspace
 

@@ -21,7 +21,7 @@ composer require packstub/agents
 php artisan packstub-agents:install
 ```
 
-The install command publishes `config/packstub-agents.php`, offers to run the migrations and scaffolds `app/Ai/Agents/Assistant.php`. The migrations create the `agent_limits` table and the chat tables (`agent_conversations`, `agent_conversation_messages`, `agent_message_feedback`, `agent_conversation_summaries`, `agent_turns`). They run from the package by default; a database-per-tenant app publishes and splits them, see [Tenancy](tenancy.md). An app upgrading from 1.4 gets one more, `add_steps_to_agent_conversation_messages_table`, which rewrites the stored messages into the shape laravel/ai 1.0 reads (steps and a status) and keeps the old columns empty; decide or abandon any proposal still waiting before running it.
+The install command publishes `config/packstub-agents.php`, offers to run the migrations and scaffolds `app/Ai/Agents/Assistant.php`. The migrations create the `agent_limits` table and the chat tables (`agent_conversations`, `agent_conversation_messages`, `agent_message_feedback`, `agent_conversation_summaries`, `agent_turns`) and the tool call log (`agent_tool_calls`). They run from the package by default; a database-per-tenant app publishes and splits them, see [Tenancy](tenancy.md). An app upgrading from 1.4 gets one more, `add_steps_to_agent_conversation_messages_table`, which rewrites the stored messages into the shape laravel/ai 1.0 reads (steps and a status) and keeps the old columns empty; decide or abandon any proposal still waiting before running it.
 
 ## Register the agent and the tools
 

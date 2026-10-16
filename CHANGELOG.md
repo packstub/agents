@@ -2,6 +2,20 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+### Added
+
+- **The tool call log: every tool call on record, with the person, the arguments, the result and the approval decision** (#48). A new table, `agent_tool_calls` (`Packstub\Agents\Models\AgentToolCall`), holds one row per call from the chat, `AgentRun`, the commands, the email channel and MCP clients:
+  - who ran it and where: the person, the agent access token of an MCP call, the workspace, the panel, the turn and the conversation;
+  - the tool, its ability and the arguments;
+  - for a write proposed in the chat, the question the person saw and the decision on the same row (`approved`, `rejected`, or `superseded` by a question typed instead), how it was decided (`words`, `classifier`, `app`, or the buttons) and when;
+  - how it ended (`succeeded`, `failed`, or `refused` by the workspace, the role or the token, with the message), the result or error the model read, and how long the tool took.
+
+  A row is not changed again once its call ended, and it stays when the conversation is deleted. Arguments, results and errors are redacted when `redact` is on. Config `tool_log`: `AGENT_TOOL_LOG` (on), `AGENT_TOOL_LOG_RESULTS` (on; off keeps the outcome without the result), `AGENT_TOOL_LOG_MAX_BYTES` (64 KB; larger arguments or results keep their first bytes) and `AGENT_TOOL_LOG_KEEP_DAYS` (90; pruned by `model:prune --model=Packstub\Agents\Models\AgentToolCall`). If a write to the log fails, the failure is reported and the call goes on. Run `php artisan migrate`; a database-per-tenant app moves `create_agent_tool_calls_table` next to its tenant migrations. See [The tool call log](https://packstub.dev/docs/agents/security#the-tool-call-log).
+
+  The chat's tools now go through `Packstub\Agents\Ai\TurnTool`, a subclass of laravel/ai's `McpServerTool` that passes the provider's call id to the log; `ApprovableTool` extends it. It also ends the row of a plain laravel/mcp tool in the list (one that does not extend `AgentTool`), which an MCP client's call does not record. Code that checks for `McpServerTool` still matches.
+
 ## 1.10.0 — 2026-10-13
 
 ### Added

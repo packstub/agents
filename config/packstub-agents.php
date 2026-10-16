@@ -274,6 +274,19 @@ return [
         'channel' => env('AGENT_LOG_CHANNEL'),
     ],
 
+    // One agent_tool_calls row per tool call, from the chat and from MCP clients alike: who ran it and where (person,
+    // access token, workspace, turn), the arguments, the decision on a write proposed in the chat (approved, rejected
+    // or superseded, and how), and how it ended (succeeded, failed, refused by the workspace, the role or the token)
+    // with the result or the error the model read. Arguments and results are redacted when `redact` is on. A row is
+    // never changed once the call ended, outlives its conversation, and is pruned after keep_days by
+    // `model:prune --model=Packstub\\Agents\\Models\\AgentToolCall` (null keeps them forever).
+    'tool_log' => [
+        'enabled' => (bool) env('AGENT_TOOL_LOG', true),
+        'results' => (bool) env('AGENT_TOOL_LOG_RESULTS', true), // false keeps the outcome without the result
+        'max_bytes' => (int) env('AGENT_TOOL_LOG_MAX_BYTES', 65536), // larger arguments or results keep their first bytes
+        'keep_days' => env('AGENT_TOOL_LOG_KEEP_DAYS', 90),
+    ],
+
     // Spending guard rails, enforced before a turn calls the provider (this file is the platform's ceiling; the
     // operator's AI limits page overrides it per workspace and per user; the provider's own hard spend limit is
     // the real backstop). null disables a limit.

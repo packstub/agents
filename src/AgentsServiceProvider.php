@@ -18,6 +18,7 @@ use Packstub\Agents\Http\Middleware\AcceptJson;
 use Packstub\Agents\Http\Middleware\AuthenticateEmailWebhook;
 use Packstub\Agents\Support\AgentConversationStore;
 use Packstub\Agents\Support\AgentRedactor;
+use Packstub\Agents\Support\AgentToolLog;
 use Packstub\Agents\Support\Context\LaravelContext;
 use Packstub\Agents\Support\Decisions\AgentDecisionClassifier;
 use Packstub\Agents\Support\Decisions\JevDecisionClassifier;
@@ -78,6 +79,8 @@ class AgentsServiceProvider extends PackageServiceProvider
 
         // One redactor per request or job: it remembers what a turn replaced, to report it once.
         $this->app->scoped(AgentRedactor::class);
+        // The turn and the call under way, for the tool log.
+        $this->app->scoped(AgentToolLog::class);
 
         // Who is acting and where: a plain Laravel app's guard and workspace closure; AgentsPlugin rebinds the panel's.
         $this->app->singleton(AgentContext::class, LaravelContext::class);

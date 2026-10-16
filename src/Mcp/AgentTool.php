@@ -13,6 +13,7 @@ use Laravel\Sanctum\TransientToken;
 use Packstub\Agents\Events\ToolAuthorized;
 use Packstub\Agents\Exceptions\WorkspaceAccessDenied;
 use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Support\AgentToolLog;
 use ReflectionClass;
 use RuntimeException;
 use Throwable;
@@ -45,19 +46,20 @@ abstract class AgentTool extends Tool
 
     public function handle(Request $request): Response
     {
-        if ($refusal = self::membershipRefusal()) {
-            return $this->refused($request, $refusal, 'workspace');
-        }
+        // Every call is on record (config `tool_log`): the checks, then how it ended with what the model read.
+        $log = app(AgentToolLog::class);
+        $call = $log->start($this->name(), $this->ability, $request->all());
 
-        if (! Agents::allows($this->ability)) {
-            return $this->refused($request, self::refusal(), 'role');
-        }
+        if (($refused = $this->callRefusal()) !== null) {
+            [$refusal, $by] = $refused;
+            $log->refused($call, $by, $refusal);
 
-        if ($refusal = $this->tokenRefusal()) {
-            return $this->refused($request, $refusal, 'token');
+            return $this->refused($request, $refusal, $by);
         }
 
         ToolAuthorized::dispatch($this, $this->ability, $request->all(), true);
+
+        $startedAt = microtime(true);
 
         try {
             $result = $this->run($request);
@@ -68,16 +70,44 @@ abstract class AgentTool extends Tool
                 $result = $map($result, $this, $request);
             }
 
+            $log->succeeded($call, $result, $startedAt);
+
             return Response::json($result);
         } catch (ValidationException $e) {
-            return Response::error(__('Invalid arguments: :errors', ['errors' => collect($e->errors())->flatten()->join(' ')]));
+            $error = __('Invalid arguments: :errors', ['errors' => collect($e->errors())->flatten()->join(' ')]);
         } catch (RuntimeException|InvalidArgumentException $e) {
-            return Response::error($e->getMessage());
+            $error = $e->getMessage();
         } catch (Throwable $e) {
             report($e);
 
-            return Response::error(__('The action failed: :message', ['message' => $e->getMessage()]));
+            $error = __('The action failed: :message', ['message' => $e->getMessage()]);
         }
+
+        $log->failed($call, $error, $startedAt);
+
+        return Response::error($error);
+    }
+
+    /**
+     * Why this call may not run, and which check says so ('workspace', 'role', 'token'), or null when it may.
+     *
+     * @return array{string, string}|null
+     */
+    protected function callRefusal(): ?array
+    {
+        if ($refusal = self::membershipRefusal()) {
+            return [$refusal, 'workspace'];
+        }
+
+        if (! Agents::allows($this->ability)) {
+            return [self::refusal(), 'role'];
+        }
+
+        if ($refusal = $this->tokenRefusal()) {
+            return [$refusal, 'token'];
+        }
+
+        return null;
     }
 
     protected function refused(Request $request, string $refusal, string $by): Response

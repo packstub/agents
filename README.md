@@ -21,6 +21,7 @@ An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https:
 - **[One tool list, two front doors](#writing-tools)**: your own agent and any MCP client (Claude Code, Cursor) call the same tools.
 - **[Your app's authorization](#writing-tools)**: the agent never does more than the signed-in person could, and a token narrows it further.
 - **[Writes are proposals](#writing-tools)**: a write waits for the person's approval, asked as a plain question.
+- **[Every tool call on record](https://packstub.dev/docs/agents/security#the-tool-call-log)**: who ran it, the arguments, the result and the approval decision, chat and MCP alike.
 - **[Turns that survive the request](#running-a-turn)**: queued, recorded and polled, with a sync driver when there is no worker.
 - **[Knowledge base and web search](https://packstub.dev/docs/agents/tools#knowledge-base)**: answers from your own documents, cited, and from public pages within an allow-list.
 - **[Guard rails you switch on](https://packstub.dev/docs/agents/security#the-prompt-guard)**: a prompt guard against injections, and redaction of secrets in answers.
