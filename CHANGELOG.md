@@ -82,7 +82,7 @@ The assistant reaches beyond your records, with guard rails you switch on. Filam
 - Retry any unanswered question, not only the last; a chat remembers the record it is about
 - Retry, Regenerate and Edit resend the question's files and mentions; Compress keeps exchanges whole
 
-**Upgrading:** run the migrations (new `agent_conversation_classifications` table). Everything new is off by default. Tests that fake only the assistant fake `TitleAgent` too to test a title; an `Agent` that overrides `middleware()` adds `GuardPrompt` and `SupportedProviderTools` itself.
+**Upgrading:** run the migrations (new `agent_conversation_classifications` table). Everything new is off by default. Tests that fake only the assistant fake `TitleAgent` too to test a title; an `Agent` that overrides `middleware()` adds `GuardPrompt` and `SupportedProviderTools` itself; `Agent::tools()` may return provider tools without a `name()`.
 
 ## 1.5.0 — 2026-09-28
 
