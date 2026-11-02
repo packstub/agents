@@ -32,10 +32,7 @@ A reply typed while writes wait for a decision is now read in up to three steps,
 - Then the word lists, now in translation files (en, de, es, ro, ru) you can publish to add or change phrases
 - Then an optional classifier (`AGENT_DECISION_CLASSIFIER=true`) that decides each proposal on its own
 - The turn records what decided it
-
-## 1.8.1 — 2026-10-07
-
-- A typed reply approves pending writes only when it is nothing but a yes. Before, "Yes, but only Alpha." or "Ok wait, what does this change?" ran every pending write; now such a reply is a question and the proposals are declined.
+- A typed yes approves the pending writes only when the reply is nothing but a yes: "Yes, but only Alpha." or "Ok?" used to run them all (#35)
 
 ## 1.8.0 — 2026-10-07
 
