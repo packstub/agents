@@ -8,6 +8,8 @@ An AI agent and an MCP server for a Laravel app, built on laravel/ai and laravel
 
 In a Filament panel, [Filament Agents](https://packstub.dev/docs/filament-agents) puts a chat, the Agent access page and the operator pages on top of this package.
 
+![Claude Code with the app's MCP server added is asked which orders are still pending, calls the app's search-orders tool and answers with the two pending orders in a table](https://raw.githubusercontent.com/packstub/art/main/agents/docs/agents.gif)
+
 ## Features
 
 - **[One tool list, two front doors](tools.md)**: your own agent and any MCP client (Claude Code, Cursor) call the same tools.

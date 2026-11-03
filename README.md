@@ -2,6 +2,8 @@
 
 <div class="filament-hidden">
 
+![Agents for Laravel: one SearchOrders tool answering in your own assistant and in an MCP client, which pauses a write for approval](https://raw.githubusercontent.com/packstub/art/main/agents/banner.jpg)
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/packstub/agents.svg?style=flat-square)](https://packagist.org/packages/packstub/agents)
 [![Tests](https://img.shields.io/github/actions/workflow/status/packstub/agents/tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/packstub/agents/actions/workflows/tests.yml)
 [![Total Downloads](https://img.shields.io/packagist/dt/packstub/agents.svg?style=flat-square)](https://packagist.org/packages/packstub/agents)
@@ -11,6 +13,8 @@
 </div>
 
 An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https://github.com/laravel/ai) and [laravel/mcp](https://github.com/laravel/mcp). Write a tool once and it serves both your own assistant and Claude Code, Claude Desktop, Cursor or any other MCP client, with your app's own authorization deciding who may run it. [Filament Agents](https://packstub.dev/docs/filament-agents) puts a chat and the operator pages on top of it inside a Filament panel.
+
+![Claude Code with the app's MCP server added is asked which orders are still pending, calls the app's search-orders tool and answers with the two pending orders in a table](https://raw.githubusercontent.com/packstub/art/main/agents/docs/agents.gif)
 
 ![A question about pending orders: the search-orders and show-table calls folded above the answer, a proposal to confirm order RO-00016 with Approve and Reject buttons, and the live Orders table filtered to the three pending rows](https://raw.githubusercontent.com/packstub/art/main/filament-agents/docs/chat-table.png)
 
