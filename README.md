@@ -262,6 +262,8 @@ Read more: [Configuration](https://packstub.dev/docs/agents/configuration).
 - [Security](https://packstub.dev/docs/agents/security)
 - [Testing](https://packstub.dev/docs/agents/testing)
 
+Guide: [One tool list for your Filament assistant and your MCP server](https://packstub.dev/guides/filament-ai-assistant-and-mcp-server), a tutorial that builds the panel chat and the MCP endpoint from one `SearchOrders` tool.
+
 ## Testing
 
 ```bash
