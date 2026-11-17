@@ -182,9 +182,7 @@ class AgentChat
             return collect();
         }
 
-        $own = Conversation::query()
-            ->where('participant_type', $participant->getMorphClass())
-            ->where('participant_id', $participant->getKey());
+        $own = AgentConversationStore::conversationsOf($participant);
 
         // whereLike, case-insensitive: a plain like is case-sensitive on Postgres, so "alpha" would miss "Alpha" there.
         $matches = ConversationMessage::query()
@@ -1146,12 +1144,10 @@ class AgentChat
         return ['resource' => $table['resource'], 'filters' => (array) ($table['filters'] ?? []), 'title' => (string) ($table['title'] ?? '')];
     }
 
-    /** The person's conversations. */
+    /** The person's conversations in the current workspace. */
     public function ownConversations(): Builder
     {
-        return Conversation::query()
-            ->where('participant_type', $this->participant->getMorphClass())
-            ->where('participant_id', $this->participant->getKey());
+        return AgentConversationStore::conversationsOf($this->participant);
     }
 
     /** The last question of the conversation. */

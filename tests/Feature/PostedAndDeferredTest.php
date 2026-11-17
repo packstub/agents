@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Laravel\Ai\Models\Conversation;
@@ -201,12 +202,12 @@ it('keeps a deferred turn in its workspace and off while the agent is switched o
 
     actingAs($owner);
 
-    // Opened from Globex: nothing starts, the turn waits for an open in Acme with the reason on it.
+    // Opened from Globex: the chat is not found there, nothing starts, the turn waits for an open in Acme with the reason on it.
     Agents::tenantUsing(fn () => $globex);
     $elsewhere = __('This question was asked in another workspace. Open the conversation there to get its answer.');
-    expect($turns->startDeferred($conversation, $owner))->toBeNull()
-        ->and($deferred->fresh())->toMatchArray(['status' => AgentTurn::DEFERRED, 'tenant' => (string) $acme->id, 'error' => $elsewhere])
-        ->and(AgentChat::for($owner, $conversation)->live()['deferred'])->toBe(['id' => $deferred->id, 'error' => $elsewhere]);
+    expect(fn () => AgentChat::for($owner, $conversation))->toThrow(ModelNotFoundException::class)
+        ->and($turns->startDeferred($conversation, $owner))->toBeNull()
+        ->and($deferred->fresh())->toMatchArray(['status' => AgentTurn::DEFERRED, 'tenant' => (string) $acme->id, 'error' => $elsewhere]);
 
     // Opened in Acme with the agent switched off: the same, with that reason.
     Agents::tenantUsing(fn () => $acme);

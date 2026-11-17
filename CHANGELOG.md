@@ -4,6 +4,7 @@ All notable changes to `packstub/agents` are documented here.
 
 ## Unreleased
 
+- Security: a person who belongs to two workspaces no longer sees, opens or searches the chats started in the other one. **Upgrading:** run `php artisan migrate` (adds `tenant` to `agent_conversations`); chats stored before it stay hidden in apps with workspaces until their `tenant` is filled in
 - Tested on laravel/ai 1.4: approving a proposal in a test with the assistant faked now runs the tool, so `AgentEval::decide()` returns its result
 - On laravel/ai 1.4 an answer that carries on after an approval keeps what the assistant said before it asked
 - `composer.json`'s homepage points at the package's page on packstub.dev
