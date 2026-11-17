@@ -2,6 +2,10 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+- `composer.json`'s homepage points at the package's page on packstub.dev
+
 ## 1.11.0 — 2026-10-22
 
 Every tool call is now on record, and a fix for MySQL and MariaDB that you should pick up soon.
