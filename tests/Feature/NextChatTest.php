@@ -444,11 +444,14 @@ it('evaluates the agent in a test: which tools it called with which arguments, w
         ->and(fn () => $result->assertCalled('list-widgets', ['filters' => ['status' => ['draft']]]))->toThrow(AssertionFailedError::class)
         ->and(fn () => $result->assertNothingProposed())->toThrow(AssertionFailedError::class);
 
-    // Under a faked provider laravel/ai does not resume the approved call (the tool's own logic is tested directly);
-    // the decision still reaches the prompt and the answer follows.
+    // laravel/ai 1.4 resumes the approved call under a faked provider too: the tool runs, its result is on the call,
+    // the decision reaches the prompt and the answer follows.
     $decided = $result->then()->expecting(['Renamed Alpha.'])->decide('c2', true);
     $decided->assertOk()->assertAnswerContains('renamed alpha')->assertAnswerNotContains('beta');
     WidgetAgent::assertPrompted(fn ($prompt) => $prompt->approvalDecisions?->get('c2')?->isApproved() === true);
+    expect($alpha->fresh()->name)->toBe('Alpha II')
+        ->and($decided->toolCalls()[1])->toMatchArray(['id' => 'c2', 'pending' => false, 'rejected' => false])
+        ->and(json_decode($decided->toolCalls()[1]['result'], true)['renamed'])->toBeTrue();
 
     $next = $result->then()->expecting(['Two widgets.'])->ask('How many now?');
     $next->assertOk()->assertNoToolCalls();

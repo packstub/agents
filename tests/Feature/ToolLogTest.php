@@ -83,23 +83,19 @@ it('records a chat write from the model\'s call through the person\'s approval t
         'status' => AgentToolCall::PROPOSED, 'question' => "Rename widget #{$alpha->id} to Alpha II?", 'decision' => null,
     ]);
 
-    // The click: the decision turn records it (under a fake, laravel/ai does not run the approved call).
+    // The click: the decision turn records it, and the approved call runs through the bridge under its provider id,
+    // inside the decision turn, and ends the row (laravel/ai 1.4 resumes a paused call under a fake too).
     WidgetAgent::fake(['Done.']);
     $decision = AgentChat::for($user, $conversation)->decide('c1', true);
-    expect($decision->status)->toBe(AgentTurn::DONE)
-        ->and($row->fresh())->toMatchArray(['status' => AgentToolCall::APPROVED, 'decision' => 'approved', 'decided_by' => null, 'finished_at' => null])
-        ->and($row->fresh()->decided_at)->not->toBeNull();
-
-    // The approved call runs through the bridge under its provider id, inside the decision turn, and ends the row.
-    $log->during($decision);
-    $answer = (new ApprovableTool(app(RenameWidget::class)))->handle(new AiRequest($arguments, 'c1'));
-    $log->during(null);
 
     $row = $row->fresh();
-    expect(json_decode($answer, true)['renamed'])->toBeTrue()
+    expect($decision->status)->toBe(AgentTurn::DONE)
+        ->and($alpha->fresh()->name)->toBe('Alpha II')
         ->and(AgentToolCall::query()->count())->toBe(1)
-        ->and($row)->toMatchArray(['status' => AgentToolCall::SUCCEEDED, 'ability' => 'widgets.manage', 'token_id' => null, 'error' => null, 'refused_by' => null])
-        ->and($row->result)->toEqual(json_decode($answer, true)) // MySQL keeps JSON keys in its own order
+        ->and($row)->toMatchArray(['status' => AgentToolCall::SUCCEEDED, 'decision' => 'approved', 'decided_by' => null, 'ability' => 'widgets.manage', 'token_id' => null, 'error' => null, 'refused_by' => null])
+        ->and($row->decided_at)->not->toBeNull()
+        ->and($row->result['renamed'])->toBeTrue()
+        ->and($row->result['widget'])->toMatchArray(['id' => $alpha->id, 'name' => 'Alpha II'])
         ->and($row->duration_ms)->toBeInt()
         ->and($row->started_at)->not->toBeNull()
         ->and($row->finished_at)->not->toBeNull()
@@ -143,7 +139,7 @@ it('records a decision on a proposal it never saw proposed, from the call the co
 
     expect(AgentToolCall::query()->sole())->toMatchArray([
         'call_id' => 'c1', 'channel' => 'agent', 'conversation_id' => $conversation, 'tool' => 'rename-widget',
-        'arguments' => ['id' => $alpha->id, 'name' => 'Alpha II'], 'status' => AgentToolCall::APPROVED, 'decision' => 'approved',
+        'arguments' => ['id' => $alpha->id, 'name' => 'Alpha II'], 'status' => AgentToolCall::SUCCEEDED, 'decision' => 'approved',
     ]);
 });
 
@@ -367,8 +363,10 @@ it('records what a turn streams: the read it ran, the write it proposed, then th
     WidgetAgent::fake(['Renamed.']);
     AgentChat::for($user, $conversation)->decide('w1', true);
 
-    // Under a fake laravel/ai does not run the approved call; the bridge's part is the first test's.
-    expect($write->fresh())->toMatchArray(['status' => AgentToolCall::APPROVED, 'decision' => 'approved', 'turn_id' => $asked->id])
+    // The approved call runs inside the decision turn and ends the row it was proposed on.
+    expect($write->fresh())->toMatchArray(['status' => AgentToolCall::SUCCEEDED, 'decision' => 'approved', 'turn_id' => $asked->id])
+        ->and($write->fresh()->result['renamed'])->toBeTrue()
+        ->and($alpha->fresh()->name)->toBe('Alpha II')
         ->and(AgentToolCall::query()->count())->toBe(2);
 });
 

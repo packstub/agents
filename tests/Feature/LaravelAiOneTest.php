@@ -252,11 +252,14 @@ it('stores the answer to a typed decision after the reply, and folds one made wi
     $rows = ConversationMessage::query()->where('conversation_id', $conversation)->orderBy('id')->get();
     expect($rows->pluck('content')->all())->toBe(['Rename Alpha to Alpha II.', 'Shall I?', 'Yes, go ahead.', 'Done, it is Alpha II now.'])
         ->and($rows[1]->status)->toBe(MessageStatus::Completed)
-        ->and($rows[1]->tool_calls[0])->toMatchArray(['id' => 'c1', 'approval_reason' => 'Rename?']) // under a fake laravel/ai does not run the approved call, so no result lands on it
+        ->and($rows[1]->tool_calls[0])->toMatchArray(['id' => 'c1', 'approval_reason' => 'Rename?'])
+        ->and(json_decode($rows[1]->tool_calls[0]['result'], true)['renamed'])->toBeTrue() // laravel/ai 1.4 runs the approved call under a fake too
+        ->and($alpha->fresh()->name)->toBe('Alpha II')
         ->and($rows[3]->status)->toBe(MessageStatus::Completed)
         ->and(AgentChat::for($user, $conversation)->messages()->last()['text'])->toBe('Done, it is Alpha II now.');
 
-    // With the buttons: no reply row, the answer carries on in the paused one.
+    // With the buttons: no reply row, the answer carries on in the paused one, after what it said before it asked.
+    $alpha->update(['name' => 'Alpha']);
     $conversation = $store->startConversation($user, 'Rename Alpha');
     $store->storeQuestion($conversation, $user, WidgetAgent::class, 'Rename Alpha to Alpha II.');
     $paused($conversation);
@@ -264,10 +267,12 @@ it('stores the answer to a typed decision after the reply, and folds one made wi
     expect(AgentChat::for($user, $conversation)->decide('c1', true)?->status)->toBe(AgentTurn::DONE);
 
     $rows = ConversationMessage::query()->where('conversation_id', $conversation)->orderBy('id')->get();
-    expect($rows->pluck('content')->all())->toBe(['Rename Alpha to Alpha II.', 'Done, it is Alpha II now.'])
+    expect($rows->pluck('content')->all())->toBe(['Rename Alpha to Alpha II.', "Shall I?\n\nDone, it is Alpha II now."])
         ->and($rows[1]->status)->toBe(MessageStatus::Completed)
         ->and($rows[1]->tool_calls[0])->toMatchArray(['id' => 'c1'])
-        ->and(AgentChat::for($user, $conversation)->messages()->last())->toMatchArray(['text' => 'Done, it is Alpha II now.', 'regenerable' => true]);
+        ->and(json_decode($rows[1]->tool_calls[0]['result'], true)['renamed'])->toBeTrue()
+        ->and($alpha->fresh()->name)->toBe('Alpha II')
+        ->and(AgentChat::for($user, $conversation)->messages()->last())->toMatchArray(['text' => "Shall I?\n\nDone, it is Alpha II now.", 'regenerable' => true]);
 });
 
 it('shows what the model thought before it answered, when the provider reports it', function () {
