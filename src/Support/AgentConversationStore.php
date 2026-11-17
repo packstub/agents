@@ -3,6 +3,7 @@
 namespace Packstub\Agents\Support;
 
 use Closure;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -59,6 +60,45 @@ class AgentConversationStore extends DatabaseConversationStore
 
     /** At most this many rows are read per load (bounds the first compaction of a very long chat). */
     public const SUMMARY_ROWS_CAP = 400;
+
+    /** The person's conversations in the current workspace (all of them in an app without workspaces). */
+    public static function conversationsOf(object $participant): Builder
+    {
+        $tenant = Agents::tenant()?->getKey();
+
+        return Conversation::query()
+            ->where('participant_type', Conversation::participantType($participant))
+            ->where('participant_id', Conversation::participantKey($participant))
+            ->when($tenant !== null, fn (Builder $query) => $query->where('tenant', (string) $tenant));
+    }
+
+    /** Store a new conversation in the current workspace and return its ID. */
+    public function storeConversation(?string $participantType, string|int|null $participantId, string $title, ?string $id = null): string
+    {
+        $conversationId = $id ?? (string) Str::uuid7();
+        $tenant = Agents::tenant()?->getKey();
+
+        $this->table($this->conversationsTable())->insert([
+            'id' => $conversationId,
+            'participant_type' => $participantType,
+            'participant_id' => $participantId,
+            'tenant' => $tenant !== null ? (string) $tenant : null,
+            'title' => $title,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return $conversationId;
+    }
+
+    /** Whether the conversation is the participant's and, in an app with workspaces, was started in the current one. */
+    public function conversationBelongsTo(string $conversationId, ?string $participantType, string|int|null $participantId): bool
+    {
+        $tenant = Agents::tenant()?->getKey();
+
+        return parent::conversationBelongsTo($conversationId, $participantType, $participantId)
+            && ($tenant === null || $this->table($this->conversationsTable())->where('id', $conversationId)->value('tenant') === (string) $tenant);
+    }
 
     /**
      * Open a conversation for the person, titled after the first question until the answer arrives — or with

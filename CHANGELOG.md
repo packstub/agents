@@ -2,6 +2,11 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+- Security: on a panel with workspaces, a person who belongs to several no longer sees, opens or searches in one workspace the chats started in another
+- **Upgrading:** run `php artisan migrate` (adds `tenant` to `agent_conversations` and fills it in for existing chats from their turns)
+
 ## 1.12.0 — 2026-11-18
 
 - Runs on PHP 8.3: the package now requires PHP 8.3 or newer instead of 8.4, so apps still on 8.3 can install it

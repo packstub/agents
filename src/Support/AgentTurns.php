@@ -525,11 +525,7 @@ class AgentTurns
     /** Whether the conversation is the person's (what the poll and stream endpoints check before answering). */
     public function owned(string $conversationId, ?object $participant): bool
     {
-        return $participant !== null && Conversation::query()
-            ->whereKey($conversationId)
-            ->where('participant_type', Conversation::participantType($participant))
-            ->where('participant_id', Conversation::participantKey($participant))
-            ->exists();
+        return $participant !== null && AgentConversationStore::conversationsOf($participant)->whereKey($conversationId)->exists();
     }
 
     /**
