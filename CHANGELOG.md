@@ -2,6 +2,11 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+- Tested on laravel/ai 1.4: approving a proposal in a test with the assistant faked now runs the tool, so `AgentEval::decide()` returns its result
+- On laravel/ai 1.4 an answer that carries on after an approval keeps what the assistant said before it asked
+
 ## 1.11.0 — 2026-10-22
 
 Every tool call is now on record, and a fix for MySQL and MariaDB that you should pick up soon.
