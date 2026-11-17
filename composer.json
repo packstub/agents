@@ -74,7 +74,7 @@
     },
     "minimum-stability": "stable",
     "prefer-stable": true,
-    "homepage": "https://github.com/packstub/agents",
+    "homepage": "https://packstub.dev/plugins/agents",
     "support": {
         "issues": "https://github.com/packstub/agents/issues",
         "source": "https://github.com/packstub/agents",
