@@ -2,7 +2,7 @@
 
 All notable changes to `packstub/agents` are documented here.
 
-## Unreleased
+## 1.12.0 — 2026-11-18
 
 - Runs on PHP 8.3: the package now requires PHP 8.3 or newer instead of 8.4, so apps still on 8.3 can install it
 - Tested on laravel/ai 1.4: approving a proposal in a test with the assistant faked now runs the tool, so `AgentEval::decide()` returns its result
