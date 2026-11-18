@@ -6,7 +6,7 @@ All notable changes to `packstub/agents` are documented here.
 
 Chats stay in the workspace they were started in, and two new languages.
 
-- Security: on a panel with workspaces, a person who belongs to several no longer sees, opens or searches in one workspace the chats started in another on a panel with workspaces, a person who belongs to several no longer sees, opens or searches in one workspace the chats started in another
+- Security: on a panel with workspaces, a person who belongs to several no longer sees, opens or searches in one workspace the chats started in another
 - **Upgrading:** run `php artisan migrate` (adds `tenant` to `agent_conversations` and fills it in for existing chats from their turns)
 - Hebrew and Arabic translations, including the yes and no words for typed decisions (#63)
 
