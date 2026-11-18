@@ -212,4 +212,4 @@ It also reads back what the app told the package: `name()`, `tenant()`, `inPanel
 
 ## Translations
 
-Strings are `__()` calls keyed by the English text, with JSON files for German, Spanish, Romanian and Russian in `resources/lang`. Add your own language by publishing a JSON file with the same keys into your app's `lang/` directory.
+Strings are `__()` calls keyed by the English text, with JSON files for German, Spanish, Romanian, Russian, Hebrew and Arabic in `resources/lang` (Hebrew and Arabic read right to left). Add your own language by publishing a JSON file with the same keys into your app's `lang/` directory.

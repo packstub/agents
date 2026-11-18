@@ -32,7 +32,7 @@ An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https:
 - **[A bounded bill](#budgets-and-limits)**: answer and token limits per user and per workspace, checked before the provider is called.
 - **[Your assistant, your prompt](#the-agent)**: a scaffolded agent class on Anthropic, OpenAI, Gemini or xAI, with failover.
 - **[Tenancy-aware](#tenancy)**: workspace-bound tokens, tenant databases and per-workspace keys, or no tenancy at all.
-- **Translatable**: German, Spanish, Romanian and Russian included.
+- **Translatable**: German, Spanish, Romanian, Russian, Hebrew and Arabic included.
 
 ## Compatibility
 

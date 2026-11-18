@@ -49,9 +49,16 @@ function replyOverTwoProposals(object $user, string $reply): AgentTurn
 }
 
 it('reads the word lists of every locale from the lang files, a language the app publishes included', function () {
-    expect(TypedDecisions::locales())->toContain('en', 'de', 'es', 'ro', 'ru')
-        ->and(TypedDecisions::lists()['yes'])->toContain('yes', 'ja', 'sí', 'da', 'да')
-        ->and(AgentTurns::decisionInText('Oui'))->toBeNull();
+    expect(TypedDecisions::locales())->toContain('en', 'de', 'es', 'ro', 'ru', 'he', 'ar')
+        ->and(TypedDecisions::lists()['yes'])->toContain('yes', 'ja', 'sí', 'da', 'да', 'כן', 'نعم')
+        ->and(AgentTurns::decisionInText('Oui'))->toBeNull()
+        ->and(AgentTurns::decisionInText('כן, בבקשה!'))->toBeTrue()
+        ->and(AgentTurns::decisionInText('לא תודה'))->toBeFalse()
+        ->and(AgentTurns::decisionInText('לא, רק את אלפא'))->toBeFalse()
+        ->and(AgentTurns::decisionInText('نعم، تفضل.'))->toBeTrue()
+        ->and(AgentTurns::decisionInText('لا شكراً'))->toBeFalse()
+        ->and(AgentTurns::decisionInText('لا، ليس بيتا'))->toBeFalse()
+        ->and(AgentTurns::decisionInText('כן, אבל רק אלפא'))->toBeNull();
 
     $dir = lang_path('vendor/packstub-agents/fr');
     File::ensureDirectoryExists($dir);
