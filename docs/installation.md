@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| PHP | 8.4 or newer |
+| PHP | 8.3 or newer |
 | Laravel | 13.x |
 | laravel/ai | ^1.0 |
 | laravel/mcp | ^1.0 |

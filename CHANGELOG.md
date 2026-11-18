@@ -4,6 +4,7 @@ All notable changes to `packstub/agents` are documented here.
 
 ## Unreleased
 
+- Runs on PHP 8.3: the package now requires PHP 8.3 or newer instead of 8.4, so apps still on 8.3 can install it
 - Tested on laravel/ai 1.4: approving a proposal in a test with the assistant faked now runs the tool, so `AgentEval::decide()` returns its result
 - On laravel/ai 1.4 an answer that carries on after an approval keeps what the assistant said before it asked
 - `composer.json`'s homepage points at the package's page on packstub.dev
