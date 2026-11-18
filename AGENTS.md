@@ -27,7 +27,7 @@ composer lint               # Pint
 
 ## Conventions
 
-- PHP 8.4+ (not 8.3). Every change needs a test and a `CHANGELOG.md` line.
+- PHP 8.3+. Every change needs a test and a `CHANGELOG.md` line.
 - Changelog headings are `## <version> — <date>`; the tag is `v<version>` on `main`.
 - A changelog section is the GitHub release's summary, and the release workflow appends GitHub's list of merged pull requests under it, so keep it short and human: an optional lead sentence, then at most ~6 one-line bullets saying what a user gets or what changed, in plain words. Class and method names only where a user needs the name to use it, never lists of them; no internal detail (CI, tests, refactors, edge-case semantics). Always keep breaking changes (an `**Upgrading:**` line saying what to do), security or privacy fixes (say so), new minimum versions and migrations to run.
 - Strings are `__()` keyed by the English text; keep `resources/lang/{de,es,ro,ru}.json` in sync.

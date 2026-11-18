@@ -38,7 +38,7 @@ An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https:
 
 | Package | Laravel | PHP | laravel/ai | laravel/mcp |
 | --- | --- | --- | --- | --- |
-| 1.x | 13.x | 8.4+ | ^0.11 | ^0.9 |
+| 1.x | 13.x | 8.3+ | ^0.11 | ^0.9 |
 
 ## Installation
 
