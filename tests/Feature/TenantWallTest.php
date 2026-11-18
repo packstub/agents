@@ -1,9 +1,9 @@
 <?php
 
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Laravel\Ai\Models\Conversation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Laravel\Ai\Models\Conversation;
 use Packstub\Agents\Facades\Agents;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentChat;
