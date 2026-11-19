@@ -2,6 +2,10 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+- The default assistant name ("Assistant") is translated; a name you set stays as it is
+
 ## 1.13.0 — 2026-11-18
 
 Chats stay in the workspace they were started in, and two new languages.
