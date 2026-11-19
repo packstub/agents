@@ -297,18 +297,27 @@ class AgentModels
 
     protected static function hasPlatformKey(string $provider): bool
     {
-        return filled(config("ai.providers.{$provider}.key"));
+        return filled(self::platformKey($provider));
+    }
+
+    /** The provider key the app was configured with, kept aside once a workspace key replaces it in config. */
+    protected static function platformKey(string $provider): mixed
+    {
+        return config("packstub-agents.platform_keys.{$provider}", config("ai.providers.{$provider}.key"));
     }
 
     protected static function applyWorkspaceKey(string $provider): void
     {
+        $platform = self::platformKey($provider);
         $own = self::credentials();
-        if (! $own?->apiKey || $own->provider !== $provider) {
-            return;
-        }
+        // Config outlives the request in a queue worker: without its own key a workspace gets the platform key back.
+        $key = $own?->apiKey && $own->provider === $provider ? $own->apiKey : $platform;
 
-        if (config("ai.providers.{$provider}.key") !== $own->apiKey) {
-            config(["ai.providers.{$provider}.key" => $own->apiKey]);
+        if (config("ai.providers.{$provider}.key") !== $key) {
+            config([
+                "packstub-agents.platform_keys.{$provider}" => $platform,
+                "ai.providers.{$provider}.key" => $key,
+            ]);
             app(AiManager::class)->forgetInstance($provider);
         }
     }

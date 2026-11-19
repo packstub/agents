@@ -2,6 +2,10 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+- Security: in a long-running worker a workspace without its own provider key gets the platform key back instead of keeping the previous workspace's key
+
 ## 1.13.0 — 2026-11-18
 
 Chats stay in the workspace they were started in, and two new languages.
