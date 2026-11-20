@@ -1131,7 +1131,9 @@ class AgentChat
      * A show-table result (a `table` key naming a registered agent resource) becomes what a surface needs to
      * embed that resource's table with the model's filters.
      *
-     * @return array{resource: string, filters: array<string, mixed>, title: string}|null
+     * `limit` is there only when the model asked for the first rows of the result ("the latest two").
+     *
+     * @return array{resource: string, filters: array<string, mixed>, title: string, limit?: int}|null
      */
     public static function tableFromResult(mixed $result): ?array
     {
@@ -1141,7 +1143,10 @@ class AgentChat
             return null;
         }
 
-        return ['resource' => $table['resource'], 'filters' => (array) ($table['filters'] ?? []), 'title' => (string) ($table['title'] ?? '')];
+        $limit = is_numeric($table['limit'] ?? null) ? max(1, (int) $table['limit']) : null;
+
+        return ['resource' => $table['resource'], 'filters' => (array) ($table['filters'] ?? []), 'title' => (string) ($table['title'] ?? '')]
+            + ($limit === null ? [] : ['limit' => $limit]);
     }
 
     /** The person's conversations in the current workspace. */

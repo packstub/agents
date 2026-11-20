@@ -5,6 +5,7 @@
     ":minutes min": ":minutes min",
     ":name cannot help with that request. Ask about your workspace and its records.": ":name nu te poate ajuta cu această cerere. Întreabă despre spațiul tău de lucru și înregistrările lui.",
     ":name is switched off for this workspace.": ":name este oprit pentru acest spațiu.",
+    ":name is switched off for your account.": ":name este oprit pentru contul tău.",
     ":name is switched off.": ":name este oprit.",
     ":seconds s": ":seconds s",
     ":title (continued)": ":title (continuare)",

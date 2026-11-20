@@ -49,4 +49,10 @@ interface ChatHost
 
     /** Whether the host shows the chat's notices itself (it listens for `agents-notify`); otherwise the chat shows a toast. */
     public function notifies(): bool;
+
+    /**
+     * Whether what the embedded chat sits in has its own way to the chat's full page (the panel's slide-over has a
+     * button in its head, which reads the address from the chat's `data-page`); otherwise the chat's header links to it.
+     */
+    public function linksFullPage(): bool;
 }

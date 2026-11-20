@@ -66,6 +66,11 @@
 .fi-chat-jump { position: fixed; bottom: 9rem; left: 50%; z-index: 20; display: flex; transform: translateX(-50%); align-items: center; gap: 0.375rem; border-radius: 9999px; background: var(--ac-gray-900); padding: 0.375rem 0.75rem; font-size: 0.75rem; line-height: 1rem; font-weight: 500; color: #fff; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); cursor: pointer; }
 .dark .fi-chat-jump { background: #fff; color: var(--ac-gray-900); }
 .fi-chat-bottom { position: sticky; z-index: 10; }
+/* The transcript fades out as it passes under the composer and never shows below it: the page's own colour
+   (--fi-chat-page, read by agent-chat.js; set --agents-page to name it yourself), from a soft edge above the composer
+   down to the end of the window. */
+.fi-chat-started > .fi-chat-bottom::before { content: ''; position: absolute; z-index: -1; inset-inline: -0.5rem; top: -1.5rem; bottom: calc(-1 * var(--fi-chat-stick, 1rem)); background: linear-gradient(to bottom, transparent, var(--agents-page, var(--fi-chat-page, transparent)) 1.5rem); pointer-events: none; }
+.fi-chat-off > .fi-chat-bottom, .fi-chat-off > [data-key="jump"] { display: none; }
 .fi-chat-composer { border-radius: 1rem; border: 1px solid color-mix(in srgb, var(--ac-gray-950) 10%, transparent); background: #fff; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
 .fi-chat-composer:focus-within { border-color: var(--ac-primary-500); box-shadow: 0 0 0 1px var(--ac-primary-500), 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
 .dark .fi-chat-composer { border-color: rgb(255 255 255 / 0.1); background: var(--ac-gray-900); }
@@ -97,6 +102,28 @@
 /* A chart under an answer. */
 .fi-chat-chart-box { border-radius: 0.75rem; border: 1px solid var(--ac-gray-200); background: #fff; padding: 1rem; }
 .dark .fi-chat-chart-box { border-color: rgb(255 255 255 / 0.1); background: var(--ac-gray-900); }
+/* Rows under an answer, read-only (embeds/rows.blade.php): a caption with a count over a plain table. */
+.fi-chat-rows { border-radius: 0.75rem; border: 1px solid var(--ac-gray-200); background: #fff; overflow: hidden; }
+.dark .fi-chat-rows { border-color: rgb(255 255 255 / 0.1); background: var(--ac-gray-900); }
+.fi-chat-rows-head { padding: 0.625rem 0.75rem; }
+.fi-chat-rows-title { margin: 0; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; color: var(--ac-gray-950); }
+.dark .fi-chat-rows-title { color: #fff; }
+.fi-chat-rows-note { margin: 0; font-size: 0.75rem; line-height: 1rem; color: var(--ac-gray-500); }
+.fi-chat-rows-scroll { overflow-x: auto; scrollbar-width: thin; border-top: 1px solid var(--ac-gray-200); }
+.dark .fi-chat-rows-scroll { border-color: rgb(255 255 255 / 0.1); }
+.fi-chat-rows table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; line-height: 1.25rem; }
+.fi-chat-rows th, .fi-chat-rows td { text-align: start; padding: 0.5rem 0.75rem; white-space: nowrap; color: var(--ac-gray-700); }
+.dark .fi-chat-rows th, .dark .fi-chat-rows td { color: var(--ac-gray-200); }
+.fi-chat-rows th { padding-block: 0.375rem; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ac-gray-500); background: var(--ac-gray-50); }
+.dark .fi-chat-rows th { color: var(--ac-gray-400); background: rgb(255 255 255 / 0.04); }
+.fi-chat-rows tbody td { border-top: 1px solid var(--ac-gray-200); }
+.dark .fi-chat-rows tbody td { border-color: rgb(255 255 255 / 0.1); }
+.fi-chat-rows a { font-weight: 500; color: var(--ac-primary-600); text-decoration: none; }
+.fi-chat-rows a:hover, .fi-chat-rows a:focus-visible { text-decoration: underline; text-underline-offset: 2px; outline: none; }
+.dark .fi-chat-rows a { color: var(--ac-primary-400); }
+.fi-chat-rows-more { display: inline-flex; align-items: center; gap: 0.375rem; margin-top: 0.5rem; padding: 0.25rem 0.125rem; font-size: 0.8125rem; font-weight: 600; color: var(--ac-primary-600); text-decoration: none; }
+.fi-chat-rows-more:hover, .fi-chat-rows-more:focus-visible { text-decoration: underline; text-underline-offset: 2px; outline: none; }
+.dark .fi-chat-rows-more { color: var(--ac-primary-400); }
 .fi-chat-chart-title { margin: 0 0 0.75rem; font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; color: var(--ac-gray-950); }
 .dark .fi-chat-chart-title { color: #fff; }
 .fi-chat-chart { position: relative; }

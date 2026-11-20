@@ -5,6 +5,7 @@
     ":minutes min": ":minutes דק׳",
     ":name cannot help with that request. Ask about your workspace and its records.": ":name לא יכול לעזור בבקשה הזו. שאלו על סביבת העבודה שלכם ועל הרשומות בה.",
     ":name is switched off for this workspace.": ":name כבוי בסביבת העבודה הזו.",
+    ":name is switched off for your account.": ":name כבוי בחשבון שלך.",
     ":name is switched off.": ":name כבוי.",
     ":seconds s": ":seconds שנ׳",
     ":title (continued)": ":title (המשך)",

@@ -5,6 +5,7 @@
     ":minutes min": ":minutes د",
     ":name cannot help with that request. Ask about your workspace and its records.": "لا يستطيع :name المساعدة في هذا الطلب. اسأل عن مساحة عملك وسجلاتها.",
     ":name is switched off for this workspace.": "تم إيقاف :name لمساحة العمل هذه.",
+    ":name is switched off for your account.": "تم إيقاف :name لحسابك.",
     ":name is switched off.": "تم إيقاف :name.",
     ":seconds s": ":seconds ث",
     ":title (continued)": ":title (تابع)",

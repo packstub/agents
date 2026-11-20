@@ -37,7 +37,7 @@
                     @foreach ($chat->versions($lastQuestionId) as $n => $version)
                         <x-dynamic-component :component="$ui.'::dropdown.list.item'" icon="heroicon-m-clock" :x-on:click="'close(); act(\'version\', { question: '.\Illuminate\Support\Js::from($lastQuestionId).', version: '.((int) $version['id']).' })'">
                             <span class="fi-chat-version-item">
-                                <span class="fi-chat-version-label">{{ __('Answer :n', ['n' => $n + 1]) }} · {{ $version['at']?->format('H:i') }}</span>
+                                <span class="fi-chat-version-label">{{ __('Answer :n', ['n' => $n + 1]) }} · @if ($version['at'])<time datetime="{{ $version['at']->toIso8601String() }}" data-agents-time>{{ $version['at']->format('H:i') }}</time>@endif</span>
                                 <span class="fi-chat-version-snippet">{{ \Illuminate\Support\Str::limit($version['text'], 80) }}</span>
                             </span>
                         </x-dynamic-component>
@@ -48,7 +48,8 @@
                 </x-dynamic-component>
             </x-dynamic-component>
         @endif
-        <span class="fi-chat-answer-tool fi-chat-foot-note">{{ $message['at']?->format('H:i') }}</span>
+        {{-- The server's clock here; the chat's script prints it in the reader's own timezone. --}}
+        <span class="fi-chat-answer-tool fi-chat-foot-note">@if ($message['at'])<time datetime="{{ $message['at']->toIso8601String() }}" data-agents-time>{{ $message['at']->format('H:i') }}</time>@endif</span>
         @if ($message['stopped'])
             <span class="fi-chat-foot-note">· {{ __('(stopped)') }}</span>
         @endif

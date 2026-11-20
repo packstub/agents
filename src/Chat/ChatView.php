@@ -161,6 +161,8 @@ class ChatView
             // A conversation on the page (or on its way): the composer moves to the bottom of the window.
             'started' => $messages->isNotEmpty() || filled($live['active']) || filled($live['queued']),
             'suggestions' => $suggestions,
+            // Why the person cannot ask here (switched off, no provider yet): said in place of the starters and the composer.
+            'unavailable' => AgentModels::unavailable(),
             'state' => [
                 'prompt' => $this->prompt,
                 'auto-send' => $this->autoSend ? '1' : '',
@@ -168,6 +170,8 @@ class ChatView
                 'model' => $chat->model(),
                 'context' => (string) $this->context,
                 'embedded' => $this->embedded ? '1' : '',
+                // Where this chat opens as a page of its own: what frames an embedded chat reads it for its own button.
+                'page' => $this->pageUrl(),
                 'act' => $this->host->endpoint('act', ['action' => '__action__']),
                 'view' => $this->host->endpoint('view'),
                 'search' => $this->host->canMention() ? $this->host->endpoint('mentions') : '',

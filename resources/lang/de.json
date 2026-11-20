@@ -5,6 +5,7 @@
     ":minutes min": ":minutes Min",
     ":name cannot help with that request. Ask about your workspace and its records.": ":name kann bei dieser Anfrage nicht helfen. Fragen Sie nach Ihrem Arbeitsbereich und seinen Daten.",
     ":name is switched off for this workspace.": ":name ist für diesen Arbeitsbereich ausgeschaltet.",
+    ":name is switched off for your account.": ":name ist für Ihr Konto ausgeschaltet.",
     ":name is switched off.": ":name ist ausgeschaltet.",
     ":seconds s": ":seconds s",
     ":title (continued)": ":title (Fortsetzung)",

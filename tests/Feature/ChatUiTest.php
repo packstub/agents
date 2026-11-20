@@ -10,13 +10,17 @@ use Illuminate\Support\Str;
 use Laravel\Ai\Models\Conversation;
 use Laravel\Ai\Models\ConversationMessage;
 use Packstub\Agents\Chat\ChatAssets;
+use Packstub\Agents\Chat\ChatHost;
 use Packstub\Agents\Chat\ChatParts;
 use Packstub\Agents\Chat\ChatRoutes;
 use Packstub\Agents\Chat\ChatView;
 use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Models\AgentLimit;
 use Packstub\Agents\Models\AgentMessageFeedback;
 use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentChat;
+use Packstub\Agents\Support\AgentLimits;
+use Packstub\Agents\Support\AgentModels;
 use Packstub\Agents\Support\AgentTurns;
 use Packstub\Agents\Tests\Fixtures\Abilities;
 use Packstub\Agents\Tests\Fixtures\WidgetAgent;
@@ -224,17 +228,59 @@ it('edits and removes a waiting question, and stops the running turn', function 
     expect(app(AgentTurns::class)->stopRequested(AgentTurn::query()->find($first->json('turn.id'))))->toBeTrue();
 });
 
+it('says the assistant is switched off for a person in place of the starters and the composer, and hands a refused question back', function () {
+    $user = $this->user();
+    $team = $this->team($user, 'acme');
+    actingAs($user);
+    Agents::tenantUsing(fn () => $team);
+
+    // Available: the starters and the composer, nothing about being off.
+    expect(Blade::render('<x-agents-chat />'))->toContain('fi-chat-suggestion')->not->toContain('fi-chat-unavailable')->not->toContain('fi-chat-off');
+
+    // An operator switched it off for this person: the page says so, and a question sent anyway is refused in the same words.
+    AgentLimit::query()->create(['scope' => 'user', 'scope_id' => (string) $user->id, 'enabled' => false]);
+    AgentLimits::flush();
+
+    expect(AgentModels::unavailable())->toBe('Ask Widgets is switched off for your account.')
+        ->and(Blade::render('<x-agents-chat />'))
+        ->toContain('fi-chat-unavailable')->toContain('Ask Widgets is switched off for your account.')
+        ->toContain('fi-chat-off') // the composer stays in the page for the script, hidden
+        ->not->toContain('fi-chat-suggestion');
+
+    $refused = postJson('/agents/chat/act/send', ['prompt' => 'Hello'])->assertOk();
+    expect($refused->json('turn'))->toBeNull()
+        ->and($refused->json('notices.0.title'))->toBe('Ask Widgets is switched off for your account.');
+
+    // The whole workspace instead.
+    AgentLimit::query()->delete();
+    AgentLimit::query()->create(['scope' => 'tenant', 'scope_id' => (string) $team->id, 'enabled' => false]);
+    AgentLimits::flush();
+    expect(AgentModels::unavailable())->toBe('Ask Widgets is switched off for this workspace.');
+
+    // No turn came back: the script puts the question back in the composer.
+    expect(file_get_contents(__DIR__.'/../../resources/js/agent-chat.js'))->toContain("if (! result?.turn && self.\$refs.input.value === '') self.draft(next.text)");
+});
+
+it('prints a message\'s time in a time element the script turns into the reader\'s own clock', function () {
+    $user = $this->user();
+    actingAs($user);
+    $id = conversationWith($user, [['role' => 'user', 'content' => 'How many widgets are live?'], ['content' => 'Two widgets are live.']]);
+
+    expect(Blade::render('<x-agents-chat :conversation="$id" />', ['id' => $id]))->toMatch('/<time datetime="\d{4}-\d\d-\d\dT[^"]+" data-agents-time>\d\d:\d\d<\/time>/')
+        ->and(file_get_contents(__DIR__.'/../../resources/js/agent-chat.js'))->toContain('time[data-agents-time]')->toContain('at.getHours()');
+});
+
 it('says in a notice why a question could not be answered', function () {
     $user = $this->user();
     actingAs($user);
 
-    // No provider key: nothing is sent, and the page is told.
+    // Switched off in config: nothing is sent, and the page is told.
     config()->set('packstub-agents.enabled', false);
 
     $off = postJson('/agents/chat/act/send', ['prompt' => 'Hello'])->assertOk();
 
     expect($off->json('turn'))->toBeNull()
-        ->and($off->json('notices.0'))->toMatchArray(['level' => 'warning', 'title' => 'Ask Widgets is not connected to an AI provider yet.'])
+        ->and($off->json('notices.0'))->toMatchArray(['level' => 'warning', 'title' => 'Ask Widgets is switched off.'])
         ->and(Conversation::query()->count())->toBe(0);
 
     // The provider fails: the question is kept and the notice stays until it is read.
@@ -418,6 +464,7 @@ it('renders the chat in a view of the app\'s own with the component', function (
     expect($html)->toContain('Two widgets are live')
         ->toContain('fi-chat-embedded')
         ->toContain('Open full page')->toContain('window.top.location.assign') // out of the slide-over's frame
+        ->toContain('data-page="'.e(app(ChatHost::class)->chatUrl($id)).'"') // what a frame with a button of its own reads
         ->toContain('agents-chat.css');
 
     // Without its assets, for a layout that loads them itself.
@@ -440,6 +487,8 @@ it('keeps the chat script free of Livewire and its deferred work off a click han
         ->not->toContain('Livewire.')
         ->not->toMatch('/setTimeout\(\(\) => this\./')
         ->toContain('self.revealed().then(() => self.refresh())')
+        // Scrolling up on a page with nowhere to scroll is still "at the end": no "Jump to latest".
+        ->toContain('if (! glide.frame && self.nearBottom()) self.atBottom = true')
         ->toContain('self.timer = setTimeout(() => self.poll(), delay)')
         // The stream while a turn runs, the poll when it cannot be held open.
         ->toContain('new EventSource(this.streamUrl')

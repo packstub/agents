@@ -5,6 +5,7 @@
     ":minutes min": ":minutes мин",
     ":name cannot help with that request. Ask about your workspace and its records.": ":name не может помочь с этим запросом. Спросите о вашем рабочем пространстве и его записях.",
     ":name is switched off for this workspace.": ":name отключён для этого рабочего пространства.",
+    ":name is switched off for your account.": ":name отключён для вашей учётной записи.",
     ":name is switched off.": ":name отключён.",
     ":seconds s": ":seconds с",
     ":title (continued)": ":title (продолжение)",

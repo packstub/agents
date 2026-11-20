@@ -3,7 +3,7 @@
      data-agents-ignore is the page's own and is left alone. Buttons, icons and dropdowns come from the host's kit
      ($ui): this package's components in a plain app, Filament's in a panel. --}}
 <div
-    @class(['fi-chat', 'fi-chat-plain' => $ui !== 'filament', 'fi-chat-embedded' => $embedded, 'fi-chat-started' => $started])
+    @class(['fi-chat', 'fi-chat-plain' => $ui !== 'filament', 'fi-chat-embedded' => $embedded, 'fi-chat-started' => $started, 'fi-chat-off' => $unavailable])
     {{-- Only ever adds the class: an x-bind:class object would strip the server's fi-chat-started whenever busy is false. --}}
     x-effect="if (busy) $el.classList.add('fi-chat-started')"
     @if ($load = $host->slot('script'))
@@ -19,7 +19,9 @@
 
     @include('packstub-agents-chat::header')
 
-    @include('packstub-agents-chat::suggestions')
+    @unless ($unavailable)
+        @include('packstub-agents-chat::suggestions')
+    @endunless
 
     <div class="fi-chat-transcript" x-ref="transcript" role="log" aria-live="polite" aria-relevant="additions text" aria-label="{{ __('Conversation') }}">
         @if ($history && $history['source'])
@@ -40,6 +42,15 @@
 
         @include('packstub-agents-chat::live')
     </div>
+
+    @if ($unavailable)
+        {{-- The assistant cannot be used here: said once, in place of the starters and the composer (kept in the page,
+             hidden, for the script). An earlier chat stays readable above. --}}
+        <div class="fi-chat-empty fi-chat-unavailable" role="status">
+            <span class="fi-chat-empty-icon"><x-dynamic-component :component="$ui.'::icon'" icon="heroicon-o-sparkles" /></span>
+            <p class="fi-chat-empty-lead">{{ $unavailable }}</p>
+        </div>
+    @endif
 
     @include('packstub-agents-chat::composer')
 

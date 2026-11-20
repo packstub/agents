@@ -66,4 +66,9 @@ class RouteHost implements ChatHost
     {
         return false;
     }
+
+    public function linksFullPage(): bool
+    {
+        return false;
+    }
 }

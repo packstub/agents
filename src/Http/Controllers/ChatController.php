@@ -270,8 +270,8 @@ class ChatController
      */
     protected function started(ChatView $view, Closure $start, bool $question = false): array
     {
-        if (! AgentModels::enabled()) {
-            $this->notify('warning', __(':name is not connected to an AI provider yet.', ['name' => Agents::name()]));
+        if ($why = AgentModels::unavailable()) {
+            $this->notify('warning', $why);
 
             return [];
         }

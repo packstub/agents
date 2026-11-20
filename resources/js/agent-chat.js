@@ -128,7 +128,13 @@ export default function agentChat() {
             document.documentElement.style.removeProperty('--fi-chat-floor')
             window.addEventListener('scroll', () => { held.y = window.scrollY; if (! glide.frame) this.atBottom = this.nearBottom() }, { passive: true, signal })
             // Scrolling up to read stops the glide at once (its own scroll events cannot tell a person's apart).
-            const away = () => { self.atBottom = false; cancelAnimationFrame(glide.frame); glide.frame = 0 }
+            // A page with nowhere to scroll (or already at its end) fires no scroll event to say so: look once it settled.
+            const away = () => {
+                self.atBottom = false
+                cancelAnimationFrame(glide.frame)
+                glide.frame = 0
+                requestAnimationFrame(() => { if (! glide.frame && self.nearBottom()) self.atBottom = true })
+            }
             window.addEventListener('wheel', (event) => { if (event.deltaY < 0) away() }, { passive: true, signal })
             window.addEventListener('touchmove', away, { passive: true, signal })
             window.addEventListener('keydown', (event) => {
@@ -139,6 +145,11 @@ export default function agentChat() {
             window.addEventListener('pagehide', () => this.closeStream(), { signal })
 
             this.pinComposer()
+            this.paintFade()
+            // A theme switch (light to dark) changes the page's colour: Filament and most apps flip a class on <html>.
+            const theme = new MutationObserver(() => self.paintFade())
+            theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] })
+            observers.push(theme)
             window.addEventListener('resize', () => {
                 pinned = false
                 held.height = 0
@@ -198,8 +209,8 @@ export default function agentChat() {
             this.history.push(next.text)
             try {
                 const result = await self.call('send', { prompt: next.text, mentions: next.mentions }, next.files)
-                // A send that did not go through hands the question back, so nothing typed is lost.
-                if (result === null && self.$refs.input.value === '') self.draft(next.text)
+                // A send that did not go through, or was refused (no turn came back), hands the question back, so nothing typed is lost.
+                if (! result?.turn && self.$refs.input.value === '') self.draft(next.text)
                 self.started(result)
             } finally {
                 self.sending = null
@@ -755,6 +766,13 @@ export default function agentChat() {
         // Code blocks in answers: a copy button and light colouring, once per block, as they render or stream in.
         decorate() {
             const copyLabel = this.$refs.state?.dataset.copy ?? 'Copy'
+            // Message times arrive on the server's clock: shown on the reader's (again after a morph put the server's back).
+            for (const time of this.$root.querySelectorAll('time[data-agents-time]')) {
+                const at = new Date(time.dateTime)
+                if (isNaN(at)) continue
+                const local = String(at.getHours()).padStart(2, '0') + ':' + String(at.getMinutes()).padStart(2, '0')
+                if (time.textContent !== local) time.textContent = local
+            }
             for (const pre of this.$refs.transcript.querySelectorAll('.fi-chat-md pre:not([data-decorated])')) {
                 pre.dataset.decorated = '1'
                 const code = pre.querySelector('code') ?? pre
@@ -791,6 +809,18 @@ export default function agentChat() {
         // pixels behind the growing transcript and then catches up. A gap that is not padding (a footer under the
         // page) keeps the stylesheet's default. Measured once the page scrolls (a short page fills the window, so the
         // gap under it is not the padding), then again after a resize.
+        // The colour behind the chat (the first ancestor that paints one), for the fade the transcript passes under at
+        // the composer: the stylesheet cannot know the page's background. On <html>, like the stick.
+        paintFade() {
+            let colour = null
+            for (let el = self.$root; el && ! colour; el = el.parentElement) {
+                const background = getComputedStyle(el).backgroundColor
+                if (background && ! /^(transparent|rgba\(0, 0, 0, 0\))$/.test(background) && ! /,\s*0\)$/.test(background)) colour = background
+            }
+            const root = document.documentElement.style
+            colour ? root.setProperty('--fi-chat-page', colour) : root.removeProperty('--fi-chat-page')
+        },
+
         pinComposer() {
             if (pinned || document.documentElement.scrollHeight <= window.innerHeight) return
             pinned = true
