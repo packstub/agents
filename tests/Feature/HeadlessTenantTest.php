@@ -12,6 +12,7 @@ use Laravel\Ai\Embeddings;
 use Laravel\Ai\PendingStep;
 use Laravel\Ai\Responses\Data\ToolCall;
 use Laravel\Mcp\Request;
+use Packstub\Agents\Ai\WorkspaceCredentials;
 use Packstub\Agents\Channels\Email\EmailChannel;
 use Packstub\Agents\Channels\Email\InboundEmail;
 use Packstub\Agents\Contracts\AgentContext;
@@ -506,4 +507,25 @@ it('refuses a workspace key that matches nothing instead of running without a wo
         ->and($entered)->toBe([])
         ->and($ran)->toBe(0)
         ->and(auth()->user())->toBeNull();
+});
+
+it('puts the platform key back for a workspace without its own, so a long-lived worker never carries the previous workspace key', function () {
+    $owner = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $globex = $this->team($owner, 'globex');
+    actingAs($owner);
+    $current = $acme;
+    Agents::tenantUsing(function () use (&$current) {
+        return $current;
+    });
+    Agents::credentialsUsing(function () use (&$current, $acme) {
+        return $current->is($acme) ? new WorkspaceCredentials('anthropic', 'sk-acme') : null;
+    });
+
+    AgentModels::resolve();
+    expect(config('ai.providers.anthropic.key'))->toBe('sk-acme');
+
+    $current = $globex;
+    AgentModels::resolve();
+    expect(config('ai.providers.anthropic.key'))->toBe('sk-test');
 });
