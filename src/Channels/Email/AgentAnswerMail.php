@@ -56,7 +56,8 @@ class AgentAnswerMail extends Mailable
                 'proposals' => $this->answer->proposals,
                 'chatUrl' => $this->chatUrl,
                 'failed' => ! $this->answer->ok(),
-                'error' => $this->answer->error(),
+                // A refusal is written for the person; a provider's or the app's exception stays in the turn log.
+                'error' => $this->answer->refused() ? $this->answer->error() : null,
             ],
         );
     }
