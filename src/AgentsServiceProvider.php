@@ -58,7 +58,7 @@ class AgentsServiceProvider extends PackageServiceProvider
 
                         if (Installed::filamentAgents()) {
                             $command->info('Next: register the plugin in your panel provider —');
-                            $command->line('    ->plugin(\Packstub\Agents\AgentsPlugin::make()->name(\'Ask …\')->agent(\App\Ai\Agents\Assistant::class)->tools([...]))');
+                            $command->line('    ->plugin(\\'.Installed::plugin().'::make()->name(\'Ask …\')->agent(\App\Ai\Agents\Assistant::class)->tools([...]))');
                             $command->line('add a provider key to .env (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY or XAI_API_KEY, with AGENT_PROVIDER), run `php artisan filament:assets`,');
                             $command->line('and add the package views to your theme: @source \'../../../../vendor/packstub/filament-agents/resources/views\';');
                         } else {

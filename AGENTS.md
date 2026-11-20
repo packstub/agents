@@ -1,6 +1,6 @@
 # packstub/agents
 
-The agent engine for Laravel: an agent (laravel/ai) and an MCP server (laravel/mcp) sharing one tool list, and the chat itself (Blade, HTTP and Alpine), runnable without Filament or Livewire. **Agents for Laravel** on packstub.dev. `packstub/filament-agents` (the sibling repo, `plugins/filament-agents`) adds the chat and the operator pages to a Filament panel and requires this package; the two share the `Packstub\Agents\` namespace (Composer merges the PSR-4 directories), so class names must not collide across them.
+The agent engine for Laravel: an agent (laravel/ai) and an MCP server (laravel/mcp) sharing one tool list, and the chat itself (Blade, HTTP and Alpine), runnable without Filament or Livewire. **Agents for Laravel** on packstub.dev. `packstub/filament-agents` (the sibling repo, `plugins/filament-agents`) adds the panel side (the chat page as a shell around this package's chat, the operator pages) and requires this package; its classes are `Packstub\FilamentAgents\…` since 1.20, a root of its own.
 
 ## Commands
 
@@ -38,6 +38,6 @@ npm run build               # resources/dist from resources/js and resources/css
 - After a change in `resources/js` or `resources/css` run `npm run build` and commit `resources/dist`; in an app that consumes the package through a path repository run `php artisan filament:assets` to see it in a panel.
 - A controller method on a chat route reads its route parameters by name (`$request->route('action')`): in a panel with tenancy the first parameter is the tenant.
 - Nothing here may import from `Filament\`, `Livewire\` or the plugin's classes (`AgentsPlugin`, `Filament\*`, `Livewire\*`, `Mcp\Tools\ShowTable`); what needs a panel belongs in `packstub/filament-agents`.
-- Config keys, env vars, migration file names and every FQCN are shared with the plugin and must not change inside a major.
+- Config keys, env vars, migration file names and every FQCN are read by the plugin and must not change inside a major. The plugin has its own PSR-4 root since filament-agents 1.20 (`Packstub\FilamentAgents\`); nothing here names its classes except `Support\Installed::plugin()`, by string.
 - Anything domain-specific (record shapes, filter vocabulary, the prompt's domain block) belongs in the consuming app, behind the `AgentResource` hooks and the agent's slots — never in this package.
 - After a change here run the plugin's suite too (`plugins/filament-agents`, `composer test`); apps that consume the package through a path repository (the store, the demo) run their own agent suites.
