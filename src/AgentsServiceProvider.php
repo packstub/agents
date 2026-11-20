@@ -120,7 +120,7 @@ class AgentsServiceProvider extends PackageServiceProvider
         // before any route or job reads either (its provider resolves them in an earlier booted callback).
         $this->app->booted(function (): void {
             $this->registerMcpRoute();
-            $this->registerTurnRoute();
+            $this->registerChatRoutes();
             $this->registerEmailRoute();
         });
     }
@@ -171,7 +171,7 @@ class AgentsServiceProvider extends PackageServiceProvider
      * the panel's authenticated tenant routes) and these are left out, unless the app also shows the chat on a page
      * of its own (chat.ui.page or chat.ui.route).
      */
-    protected function registerTurnRoute(): void
+    protected function registerChatRoutes(): void
     {
         if (! $this->app->runningInConsole() && $this->app->routesAreCached()) {
             return;

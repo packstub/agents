@@ -27,6 +27,8 @@ class ChatParts
     public function known(array $have): void
     {
         $this->have = array_filter($have, 'is_string');
+        // A render that threw inside a part leaves it open: the next one starts clean.
+        $this->stack = [];
     }
 
     /** A revision from whatever the part is drawn from. */

@@ -141,6 +141,8 @@ class ChatView
         $live = $chat->live();
         $messages = $chat->messages();
         $lastQuestionId = $messages->last(fn ($m) => $m['role'] === 'user' && ! $m['continuation'])['id'] ?? null;
+        $suggestions = $chat->suggestions();
+        $attachments = $this->attachments();
 
         return [
             'view' => $this,
@@ -158,7 +160,7 @@ class ChatView
             'lastQuestionVersions' => $lastQuestionId ? $messages->firstWhere('id', $lastQuestionId)['versions'] : 0,
             // A conversation on the page (or on its way): the composer moves to the bottom of the window.
             'started' => $messages->isNotEmpty() || filled($live['active']) || filled($live['queued']),
-            'suggestions' => $chat->suggestions(),
+            'suggestions' => $suggestions,
             'state' => [
                 'prompt' => $this->prompt,
                 'auto-send' => $this->autoSend ? '1' : '',
@@ -174,15 +176,15 @@ class ChatView
                 'active' => (string) ($live['active']['id'] ?? ''),
                 'interval' => (string) AgentTurns::pollInterval(),
                 'title' => $this->title(),
-                'suggestions' => (string) json_encode($chat->suggestions()),
+                'suggestions' => (string) json_encode($suggestions),
                 'csrf' => (string) csrf_token(),
                 'toasts' => $this->host->notifies() ? '' : '1',
                 'copied' => __('Copied'),
                 'copy' => __('Copy'),
                 'expired' => __('This page has expired. Reload it to carry on.'),
                 'failed' => __('That did not go through. Check your connection and try again.'),
-                'too-many' => $this->attachments() ? trans_choice('{1} One file per question.|[2,*] Up to :count files per question.', $this->attachments()['maxFiles']) : '',
-                'too-big' => $this->attachments() ? __('A file can be up to :size MB.', ['size' => round($this->attachments()['maxKb'] / 1024, 1)]) : '',
+                'too-many' => $attachments ? trans_choice('{1} One file per question.|[2,*] Up to :count files per question.', $attachments['maxFiles']) : '',
+                'too-big' => $attachments ? __('A file can be up to :size MB.', ['size' => round($attachments['maxKb'] / 1024, 1)]) : '',
             ],
         ];
     }
