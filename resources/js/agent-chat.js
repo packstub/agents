@@ -37,6 +37,9 @@ export default function agentChat() {
     let handoff = null
     // The text being typed in, per element (a WeakMap: a morph strips attributes the server did not render).
     const typing = new WeakMap()
+    // What init() hooks onto the window and the document, taken off again in destroy().
+    const listeners = new AbortController()
+    const observers = []
 
     // A copy of rendered HTML cut after `length` characters of text, its open tags kept.
     const cut = (source, length) => {
@@ -89,6 +92,7 @@ export default function agentChat() {
         picker: { open: false, kind: null, query: '', items: [], index: 0, start: 0, loading: false, timer: null },
         draftTimer: null,
         titleSuffix: '',
+        destroyed: false,
 
         get busy() {
             return this.turn !== null || this.sending !== null || this.outbox.length > 0
@@ -115,21 +119,24 @@ export default function agentChat() {
             // ResizeObserver; both run before the frame is painted, so a held height never shows as a jump.
             const sizes = new ResizeObserver(() => this.hold())
             const watch = () => { for (const part of this.$refs.transcript.children) sizes.observe(part) }
-            new MutationObserver((mutations) => { watch(); this.enter(mutations); this.decorate(); this.hold(); this.pinComposer(); this.follow() }).observe(this.$refs.transcript, { childList: true, subtree: true, characterData: true })
+            const changes = new MutationObserver((mutations) => { watch(); this.enter(mutations); this.decorate(); this.hold(); this.pinComposer(); this.follow() })
+            changes.observe(this.$refs.transcript, { childList: true, subtree: true, characterData: true })
+            observers.push(sizes, changes)
             watch()
+            const { signal } = listeners
             // A chat opened from another one (wire:navigate) starts without the last one's floor.
             document.documentElement.style.removeProperty('--fi-chat-floor')
-            window.addEventListener('scroll', () => { held.y = window.scrollY; if (! glide.frame) this.atBottom = this.nearBottom() }, { passive: true })
+            window.addEventListener('scroll', () => { held.y = window.scrollY; if (! glide.frame) this.atBottom = this.nearBottom() }, { passive: true, signal })
             // Scrolling up to read stops the glide at once (its own scroll events cannot tell a person's apart).
             const away = () => { self.atBottom = false; cancelAnimationFrame(glide.frame); glide.frame = 0 }
-            window.addEventListener('wheel', (event) => { if (event.deltaY < 0) away() }, { passive: true })
-            window.addEventListener('touchmove', away, { passive: true })
+            window.addEventListener('wheel', (event) => { if (event.deltaY < 0) away() }, { passive: true, signal })
+            window.addEventListener('touchmove', away, { passive: true, signal })
             window.addEventListener('keydown', (event) => {
                 if (['PageUp', 'ArrowUp', 'Home'].includes(event.key) && ! event.target.closest?.('input, textarea, [contenteditable]')) away()
-            })
+            }, { signal })
             this.$watch('live.html', (html) => self.stream(html))
-            document.addEventListener('visibilitychange', () => { if (! document.hidden) this.schedule(0) })
-            window.addEventListener('pagehide', () => this.closeStream())
+            document.addEventListener('visibilitychange', () => { if (! document.hidden) this.schedule(0) }, { signal })
+            window.addEventListener('pagehide', () => this.closeStream(), { signal })
 
             this.pinComposer()
             window.addEventListener('resize', () => {
@@ -137,7 +144,7 @@ export default function agentChat() {
                 held.height = 0
                 document.documentElement.style.removeProperty('--fi-chat-floor')
                 self.pinComposer()
-            }, { passive: true })
+            }, { passive: true, signal })
 
             this.decorate()
             this.autosize()
@@ -151,6 +158,19 @@ export default function agentChat() {
                 this.restoreDraft()
             }
             this.schedule(0)
+        },
+
+        // The chat left the page (a panel that navigates without a reload): stop listening, polling and animating.
+        destroy() {
+            this.destroyed = true
+            listeners.abort()
+            for (const observer of observers) observer.disconnect()
+            clearTimeout(this.timer)
+            clearTimeout(this.draftTimer)
+            clearTimeout(this.picker.timer)
+            cancelAnimationFrame(glide.frame)
+            cancelAnimationFrame(reveal.frame)
+            this.closeStream()
         },
 
         submit() {
@@ -283,11 +303,13 @@ export default function agentChat() {
             template.innerHTML = html.trim()
             const fresh = template.content.querySelector('[data-agents-chat]')
             const root = self.$root
-            if (! fresh || ! root) return
+            if (self.destroyed || ! fresh || ! root) return
 
+            const parts = new Map()
+            for (const part of root.querySelectorAll('[data-key]')) if (! parts.has(part.dataset.key)) parts.set(part.dataset.key, part)
             const kept = new WeakSet()
             for (const stub of fresh.querySelectorAll('[data-agents-stub]')) {
-                const shown = [...root.querySelectorAll('[data-key]')].find((el) => el.dataset.key === stub.dataset.key)
+                const shown = parts.get(stub.dataset.key)
                 if (! shown) {
                     // The page lost a part the server thinks it has: ask for everything, once.
                     if (! whole) self.refresh(true)
@@ -445,7 +467,7 @@ export default function agentChat() {
         // keeps a second tab in step.
         schedule(delay) {
             clearTimeout(self.timer)
-            if (! self.pollUrl) return
+            if (self.destroyed || ! self.pollUrl) return
             if (self.turn !== null && self.canStream()) {
                 self.listen()
                 return
@@ -481,7 +503,7 @@ export default function agentChat() {
                 if (source.readyState === EventSource.CLOSED) {
                     self.streamFailures++
                     self.closeStream()
-                    self.timer = setTimeout(() => self.poll(), self.interval)
+                    self.schedule(self.interval)
                 }
             }
         },
@@ -496,7 +518,7 @@ export default function agentChat() {
         // The turn endpoint: the answer so far while a turn runs, and a version stamp that changes when the
         // conversation did (another tab, the job finishing) so the transcript is re-rendered from the store.
         async poll() {
-            if (! this.pollUrl) return
+            if (this.destroyed || ! this.pollUrl) return
             if (document.hidden) return this.schedule(2000)
             try {
                 const response = await fetch(this.pollUrl, { headers: { Accept: 'application/json' }, cache: 'no-store', credentials: 'same-origin' })
@@ -755,7 +777,7 @@ export default function agentChat() {
             const html = escape(code.textContent).replace(
                 /(\/\/[^\n]*|#(?!\[)[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\b\d+(?:\.\d+)?\b)/g,
                 (m, comment, string, number) => comment ? `<span class="hl-c">${m}</span>` : string ? `<span class="hl-s">${m}</span>` : `<span class="hl-n">${m}</span>`,
-            ).replace(/(^|[^\w<"'-])(?![^<]*>)/g, '$1').replace(keywords, (m, _k, offset, whole) => {
+            ).replace(keywords, (m, _k, offset, whole) => {
                 // Keywords outside spans only (a keyword inside a string or comment keeps its colour).
                 const open = whole.lastIndexOf('<span', offset)
                 const close = whole.lastIndexOf('</span>', offset)
