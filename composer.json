@@ -1,6 +1,6 @@
 {
     "name": "packstub/agents",
-    "description": "AI agents for Laravel: an agent engine and an MCP server sharing one tool list, built on laravel/ai and laravel/mcp — tools gated by the app's own abilities, read or write tokens for Claude Code, Claude Desktop and Cursor, queued turns, budgets and limits per workspace and per user. packstub/filament-agents adds the chat and the operator pages to a Filament panel.",
+    "description": "AI agents for Laravel: an agent engine and an MCP server sharing one tool list, built on laravel/ai and laravel/mcp — tools gated by the app's own abilities, read or write tokens for Claude Code, Claude Desktop and Cursor, queued turns, budgets and limits per workspace and per user. The chat ships with it as Blade components for any Laravel app; packstub/filament-agents puts it in a Filament panel with the operator pages.",
     "keywords": [
         "laravel",
         "ai",

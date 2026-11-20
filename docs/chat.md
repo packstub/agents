@@ -37,6 +37,8 @@ Without a `conversation` the component reads the route's `{conversation}` parame
 
 `context`, `prompt` and `embedded` fall back to the query string (`?context=orders/12`). A question your app wants sent on load goes through the session: `session(['packstub-agents.prompt' => $text])`, then redirect to the page.
 
+When the person cannot ask (the assistant is switched off for them or for their workspace in the [limits](budgets-and-limits.md), `AGENT_ENABLED=false`, or no provider key yet), the chat says which in place of the starter questions and the composer; an earlier chat stays readable. Message times are printed on the reader's own clock.
+
 ## Ready-made pages
 
 To start without writing a view, turn the package's own pages on:
@@ -84,7 +86,7 @@ The chat reads its colours from CSS variables, so one rule gives it your accent:
 }
 ```
 
-Every shade it uses can be set (`--agents-primary-*`, `--agents-gray-*`, `--agents-success-*`, `--agents-warning-*`, `--agents-danger-*`). Dark mode follows a `dark` class on an ancestor, as Tailwind's class strategy does.
+Every shade it uses can be set (`--agents-primary-*`, `--agents-gray-*`, `--agents-success-*`, `--agents-warning-*`, `--agents-danger-*`). Dark mode follows a `dark` class on an ancestor, as Tailwind's class strategy does. The transcript fades out under the composer in the page's own background, which the chat reads from the page; set `--agents-page` to name the colour yourself.
 
 The composer sticks to the bottom of the window once a chat has started. `--fi-chat-offset` is the height above the chat that the page takes (a navbar plus padding); set it on `.fi-chat` when the composer sits too low or leaves a gap.
 
@@ -116,7 +118,7 @@ For a front end of your own (Inertia, React, a mobile app), [`AgentChat`](assist
 
 ## In a Filament panel
 
-[Filament Agents](https://packstub.dev/docs/filament-agents/assistant) shows this chat as a panel page with Filament's buttons and menus, the slide-over, the "@" record search over your resources and live resource tables in answers. Tables in answers and the record search need a panel.
+[Filament Agents](https://packstub.dev/docs/filament-agents/assistant) shows this chat as a panel page with Filament's buttons and menus, the slide-over, the "@" record search over your resources and live resource tables in answers. Live tables and the record search need a panel; on a page of your own in the same app, an answer with a table shows its rows read-only, with a link to the full table in the panel.
 
 ## Testing
 

@@ -56,7 +56,7 @@ Queue::pushed(RunAgentTurn::class)->first()->handle(app(AgentTurns::class));
 
 `Queue::pushed(...)->first()` is the job that was dispatched; `handle()` runs it as a worker would, with the workspace, person, guard and locale of the request restored.
 
-**In a Filament panel**, [Filament Agents](https://packstub.dev/docs/filament-agents/testing) drives the same turns through its chat page with Livewire's `livewire(Chat::class)`.
+**In a Filament panel**, [Filament Agents](https://packstub.dev/docs/filament-agents/testing) drives the same turns over HTTP, with a POST to the panel's `packstub-agents.act` route. On a page of your own, see [Testing the chat](chat.md#testing).
 
 ## Evals
 
