@@ -310,6 +310,10 @@ it('opens a chat with a question waiting in the composer, or sent on load when t
         ->assertSee('data-prompt="How many widgets are live?"', escape: false)
         ->assertSee('data-auto-send=""', escape: false);
 
+    // The script puts a link's question in the composer instead of the saved draft. Matched on the code, not its layout.
+    expect(file_get_contents(__DIR__.'/../../resources/js/agent-chat.js'))
+        ->toMatch('/else\s+if\s*\(\s*state\.prompt\.trim\(\)\s*!==\s*\'\'\s*\)\s*\{\s*(\/\/[^\n]*\s*)*this\.\$refs\.input\.value\s*=\s*state\.prompt\b/');
+
     // From the session: the app asked for it, so it is sent.
     session()->put('packstub-agents.prompt', 'Summarize today');
 
