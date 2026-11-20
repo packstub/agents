@@ -40,7 +40,8 @@
             </a>
         @endif
         @if ($embedded)
-            <x-dynamic-component :component="$ui.'::link'" :href="$view->pageUrl()" target="_top" size="sm" color="gray" icon="heroicon-m-arrow-top-right-on-square">{{ __('Open full page') }}</x-dynamic-component>
+            {{-- Out of the slide-over's frame. By the click as well as the target: Filament's link keeps no target but _blank. --}}
+            <x-dynamic-component :component="$ui.'::link'" :href="$view->pageUrl()" target="_top" x-on:click.prevent="window.top.location.assign($el.href)" size="sm" color="gray" icon="heroicon-m-arrow-top-right-on-square">{{ __('Open full page') }}</x-dynamic-component>
             <x-dynamic-component :component="$ui.'::button'" tag="a" :href="$view->newChatUrl()" size="sm" color="gray" outlined icon="heroicon-m-plus">{{ __('New chat') }}</x-dynamic-component>
         @else
             @if ($chatsUrl = $host->chatsUrl())

@@ -417,7 +417,7 @@ it('renders the chat in a view of the app\'s own with the component', function (
 
     expect($html)->toContain('Two widgets are live')
         ->toContain('fi-chat-embedded')
-        ->toContain('Open full page')
+        ->toContain('Open full page')->toContain('window.top.location.assign') // out of the slide-over's frame
         ->toContain('agents-chat.css');
 
     // Without its assets, for a layout that loads them itself.
