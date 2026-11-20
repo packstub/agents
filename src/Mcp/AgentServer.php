@@ -74,7 +74,8 @@ class AgentServer extends Server
         }
 
         if ($this->name === 'Assistant') {
-            $this->name = Agents::name();
+            // The configured name, untranslated: a client stores it, whatever the language of whoever connected.
+            $this->name = (string) config('packstub-agents.name', 'Assistant');
         }
     }
 }

@@ -503,3 +503,21 @@ it('hides a record the person may not view from mentions, the page context and r
         ->and(AgentChat::for($user, context: "widgets/{$alpha->id}")->contextLabel())->toBeNull()
         ->and($rpc('resources/read', ['uri' => "record://widgets/{$alpha->id}"])->json('error.message'))->toContain('or it cannot be viewed');
 });
+
+it('keeps a provider\'s raw error out of the answer mail, which says only that it could not answer', function () {
+    Mail::fake();
+    config()->set('packstub-agents.email.enabled', true);
+    config()->set('packstub-agents.email.secret', 'hook-secret');
+    $this->user(['email' => 'ada@example.com']);
+
+    WidgetAgent::fake([fn () => throw new RuntimeException('Invalid key for config ai.providers.anthropic.key.')]);
+    postJson('/agents/email', ['from' => 'ada@example.com', 'subject' => 'Widgets', 'text' => 'How many?'], ['X-Agent-Secret' => 'hook-secret'])->assertOk();
+
+    Mail::assertSent(AgentAnswerMail::class, function (AgentAnswerMail $mail) {
+        $rendered = $mail->render();
+
+        return str_contains($rendered, __('The assistant could not answer.'))
+            && ! str_contains($rendered, 'ai.providers.anthropic.key');
+    });
+    expect(AgentTurn::query()->sole()->error)->toBe('Invalid key for config ai.providers.anthropic.key.');
+});

@@ -1,6 +1,7 @@
 <?php
 
 use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Support\AgentTokens;
 
 $locales = collect(glob(__DIR__.'/../../resources/lang/*.json'))->map(fn ($file) => basename($file, '.json'))->reject('ru')->values()->all();
 
@@ -39,6 +40,9 @@ it('calls the assistant by the default name in the person\'s language, and keeps
     app()->setLocale('ru');
     config(['packstub-agents.name' => 'Assistant']);
     expect(Agents::name())->toBe('Ассистент');
+
+    // The MCP client's configuration key stays the configured name, the same for every language.
+    expect(AgentTokens::serverSlug())->toBe('assistant');
 
     config(['packstub-agents.name' => 'Ask Acme']);
     expect(Agents::name())->toBe('Ask Acme');

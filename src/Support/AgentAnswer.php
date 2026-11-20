@@ -34,7 +34,7 @@ final class AgentAnswer
         return $this->turn === null || $this->turn->status === AgentTurn::FAILED;
     }
 
-    /** A middleware refused the turn (a budget spent, a guard). */
+    /** The turn was refused with a line written for the person: a middleware (a budget spent, a guard), access lost to the workspace, or a person who no longer exists. */
     public function refused(): bool
     {
         return $this->turn?->finish_reason === 'refused';
