@@ -15,6 +15,7 @@
     "An attachment may be at most :size.": "Un atașament poate avea cel mult :size.",
     "Answers": "Răspunsuri",
     "Approved": "Aprobat",
+    "Assistant": "Asistent",
     "Attachment": "Atașament",
     "Attachments are switched off.": "Atașamentele sunt dezactivate.",
     "Chat": "Conversație",
@@ -86,6 +87,5 @@
     "You used your AI budget for the month.": "Ți-ai consumat bugetul AI pe luna aceasta.",
     "You used your AI budget for today. It resets at midnight.": "Ți-ai consumat bugetul AI pe ziua de azi. Se resetează la miezul nopții.",
     "Your question": "Întrebarea ta",
-    "Your role (:role) is not allowed to do this.": "Rolul tău (:role) nu are voie să facă asta.",
-    "Assistant": "Asistent"
+    "Your role (:role) is not allowed to do this.": "Rolul tău (:role) nu are voie să facă asta."
 }

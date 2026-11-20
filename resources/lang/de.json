@@ -15,6 +15,7 @@
     "An attachment may be at most :size.": "Ein Anhang darf höchstens :size groß sein.",
     "Answers": "Antworten",
     "Approved": "Genehmigt",
+    "Assistant": "Assistent",
     "Attachment": "Anhang",
     "Attachments are switched off.": "Anhänge sind ausgeschaltet.",
     "Chat": "Chat",
@@ -86,6 +87,5 @@
     "You used your AI budget for the month.": "Sie haben Ihr KI-Budget für diesen Monat aufgebraucht.",
     "You used your AI budget for today. It resets at midnight.": "Sie haben Ihr KI-Budget für heute aufgebraucht. Es wird um Mitternacht zurückgesetzt.",
     "Your question": "Ihre Frage",
-    "Your role (:role) is not allowed to do this.": "Ihre Rolle (:role) darf das nicht.",
-    "Assistant": "Assistent"
+    "Your role (:role) is not allowed to do this.": "Ihre Rolle (:role) darf das nicht."
 }

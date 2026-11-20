@@ -168,9 +168,9 @@ class AgentTokens
         return url('/'.str_replace('{tenant}', $tenantSlug ?? '', $path));
     }
 
-    /** The server's name as a client configuration key. */
+    /** The server's name as a client configuration key: the configured name, never translated, so the key is the same for everyone. */
     public static function serverSlug(): string
     {
-        return Str::slug(Agents::name()) ?: 'assistant';
+        return Str::slug((string) config('packstub-agents.name', 'Assistant')) ?: 'assistant';
     }
 }
