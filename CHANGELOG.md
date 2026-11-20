@@ -12,6 +12,7 @@ The chat now ships with this package, for any Laravel app.
 - The chat's colours follow `--agents-*` CSS variables
 - Security: in a long-running worker a workspace without its own provider key gets the platform key back instead of keeping the previous workspace's key, failover providers included
 - Security: the answer email no longer includes a provider's raw error (it can name config keys); it says the assistant could not answer, and operators read the error in the turn log
+- Security: an attached file is stored under the extension of its detected type, not the one the upload names, so a disk that serves its files never hands out an accepted type as `.html`
 - The default assistant name ("Assistant") is translated; a name you set stays as it is
 - The MCP server name and the client config key in the Connect snippet stay the configured name in every language
 - A turn refused because the person lost access to the workspace, or no longer exists, ends as `refused`, so the chat shows why

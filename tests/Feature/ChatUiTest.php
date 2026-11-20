@@ -272,12 +272,23 @@ it('takes the files of a question with it, within the limits', function () {
     // The composer shows the attach button and says what it accepts.
     get('/agents/chat')->assertSee('data-max-files="2"', escape: false)->assertSee('image/png');
 
+    // Stored under the extension of what the file is, whatever the upload calls itself.
+    $png = tempnam(sys_get_temp_dir(), 'png');
+    file_put_contents($png, UploadedFile::fake()->image('page.png', 20, 20)->getContent());
+
+    post('/agents/chat/act/send', ['prompt' => 'And this one?', 'conversation' => $response->json('turn.conversation'), 'files' => [
+        new UploadedFile($png, 'page.html', test: true),
+    ]], ['Accept' => 'application/json'])->assertOk();
+
+    expect($stored = Storage::disk('local')->allFiles('agent-attachments'))->toHaveCount(2)
+        ->and(array_filter($stored, fn (string $path) => ! str_ends_with($path, '.png')))->toBe([]);
+
     // One file more than a question takes: the extra one is left out.
     post('/agents/chat/act/send', ['prompt' => 'And these?', 'conversation' => $response->json('turn.conversation'), 'files' => [
         UploadedFile::fake()->image('a.png', 20, 20), UploadedFile::fake()->image('b.png', 20, 20), UploadedFile::fake()->image('c.png', 20, 20),
     ]], ['Accept' => 'application/json'])->assertOk();
 
-    expect(Storage::disk('local')->allFiles('agent-attachments'))->toHaveCount(3);
+    expect(Storage::disk('local')->allFiles('agent-attachments'))->toHaveCount(4);
 
     // A type the chat does not take: nothing is sent, the notice says why.
     $refused = post('/agents/chat/act/send', ['prompt' => 'Run this', 'files' => [UploadedFile::fake()->create('tool.exe', 10, 'application/x-msdownload')]], ['Accept' => 'application/json'])->assertOk();
