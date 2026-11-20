@@ -4,6 +4,12 @@ All notable changes to `packstub/agents` are documented here.
 
 ## Unreleased
 
+The chat now ships with this package, for any Laravel app.
+
+- `<x-agents-chat />` puts the chat on a Blade page of your own, with streamed answers, approvals, queued questions, attachments and drafts; no Filament, Livewire or Tailwind needed ([The chat](https://packstub.dev/docs/agents/chat))
+- `<x-agents-chats />` lists a person's chats, and `AGENT_CHAT_PAGE=true` turns on ready-made pages for both
+- A long chat refreshes faster: the page asks only for the parts that changed
+- The chat's colours follow `--agents-*` CSS variables
 - Security: in a long-running worker a workspace without its own provider key gets the platform key back instead of keeping the previous workspace's key
 - The default assistant name ("Assistant") is translated; a name you set stays as it is
 

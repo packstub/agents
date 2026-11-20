@@ -26,7 +26,7 @@ Run a queue worker for the jobs (see [Installation](installation.md#a-queue-work
 
 ### A chat surface of your own
 
-`Packstub\Agents\Support\AgentChat` is one person's chat without a UI: what a surface reads and what it does, so a JSON API, a Livewire component, an Inertia page or a console command needs no logic of its own. Filament Agents' chat page is one surface over it.
+`Packstub\Agents\Support\AgentChat` is one person's chat without a UI: what a surface reads and what it does, so a JSON API, an Inertia page or a console command needs no logic of its own. The package's own chat ([The chat](chat.md)) and Filament Agents' chat page are surfaces over it.
 
 ```php
 use Packstub\Agents\Support\AgentChat;

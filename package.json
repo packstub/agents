@@ -1,0 +1,14 @@
+{
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "node bin/build.js"
+    },
+    "devDependencies": {
+        "@alpinejs/collapse": "^3.15.0",
+        "@alpinejs/morph": "^3.15.0",
+        "alpinejs": "^3.15.0",
+        "chart.js": "^4.5.0",
+        "esbuild": "^0.25.0"
+    }
+}
