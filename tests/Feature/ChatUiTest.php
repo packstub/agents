@@ -165,6 +165,9 @@ it('renames, pins and exports a chat', function () {
         ->and(AgentChat::for($user, $id)->pinned())->toBeTrue()
         ->and(postJson('/agents/chat/act/pin', ['conversation' => $id])->assertOk()->json('html'))->not->toContain('fi-chat-header-tool-on');
 
+    // An earlier answer that does not exist is said in a notice, not an error.
+    expect(postJson('/agents/chat/act/version', ['conversation' => $id, 'question' => 'none', 'version' => 1])->assertOk()->json('notices.0.level'))->toBe('warning');
+
     $export = get('/agents/chat/'.$id.'/export')->assertOk();
 
     expect($export->headers->get('Content-Disposition'))->toContain('live-widgets.md')

@@ -48,26 +48,17 @@ class ChatController
         $this->notices = [];
 
         $view = $this->view($request);
-        $chat = $view->chat;
-        $out = [];
 
-        match ($action) {
-            'send' => $out = $this->send($request, $view),
-            'resend' => $out = $this->started($view, fn (AgentChat $chat) => $chat->resend((string) $request->input('prompt')), question: true),
-            'regenerate' => $out = $this->started($view, fn (AgentChat $chat) => $chat->regenerate(), question: true),
-            'continue' => $out = $this->started($view, fn (AgentChat $chat) => $chat->continueAnswer(), question: true),
-            'retry' => $out = $this->started($view, fn (AgentChat $chat) => $chat->retry($request->filled('message') ? (string) $request->input('message') : null), question: true),
-            'decide' => $out = $this->started($view, fn (AgentChat $chat) => $chat->decide((string) $request->input('call'), $request->boolean('approve'))),
-            'stop' => $chat->stop(),
-            'queued-remove' => $chat->removeQueued((string) $request->input('turn')),
-            'queued-edit' => $out = ['text' => $chat->editQueued((string) $request->input('turn'))],
-            'feedback' => $this->feedback($request, $chat),
-            'version' => $chat->showVersion((string) $request->input('question'), (int) $request->input('version')) || $this->notify('warning', __('That answer cannot be shown right now.')),
-            'rename' => $chat->rename((string) $request->input('title')),
-            'pin' => $chat->pinned() ? $chat->unpin() : $chat->pin(),
-            'compress' => $this->compress($chat),
-            'continue-in-new' => $out = $this->continueInNew($view),
-            default => abort(404),
+        $out = match ($action) {
+            'send' => $this->send($request, $view),
+            'resend' => $this->started($view, fn (AgentChat $chat) => $chat->resend((string) $request->input('prompt')), question: true),
+            'regenerate' => $this->started($view, fn (AgentChat $chat) => $chat->regenerate(), question: true),
+            'continue' => $this->started($view, fn (AgentChat $chat) => $chat->continueAnswer(), question: true),
+            'retry' => $this->started($view, fn (AgentChat $chat) => $chat->retry($request->filled('message') ? (string) $request->input('message') : null), question: true),
+            'decide' => $this->started($view, fn (AgentChat $chat) => $chat->decide((string) $request->input('call'), $request->boolean('approve'))),
+            'queued-edit' => ['text' => $view->chat->editQueued((string) $request->input('turn'))],
+            'continue-in-new' => $this->continueInNew($view),
+            default => $this->change($action, $request, $view->chat),
         };
 
         return response()
@@ -124,7 +115,7 @@ class ChatController
     }
 
     /** GET …/chats — the person's chats, pinned first, the latest on top. */
-    public function chats(Request $request, ChatHost $host): View
+    public function chats(Request $request): View
     {
         abort_unless(AgentModels::enabled() && $request->user() !== null, 404);
 
@@ -161,11 +152,9 @@ class ChatController
         return is_array($have) ? array_filter($have, 'is_string') : [];
     }
 
-    protected function notify(string $level, string $title, ?string $body = null, bool $persistent = false): bool
+    protected function notify(string $level, string $title, ?string $body = null, bool $persistent = false): void
     {
         $this->notices[] = ['level' => $level, 'title' => $title, 'body' => $body, 'persistent' => $persistent];
-
-        return true;
     }
 
     /** The question, the records it mentions (refs such as "orders/12") and the files picked in the composer. */
@@ -195,6 +184,31 @@ class ChatController
         }
 
         return $this->started($view, fn (AgentChat $chat) => $chat->send($prompt, $files, array_values(array_filter((array) $mentions, 'is_string'))), question: true);
+    }
+
+    /** The actions that only change the chat: the page needs nothing back but the chat rendered again. */
+    protected function change(string $action, Request $request, AgentChat $chat): array
+    {
+        match ($action) {
+            'stop' => $chat->stop(),
+            'queued-remove' => $chat->removeQueued((string) $request->input('turn')),
+            'feedback' => $this->feedback($request, $chat),
+            'version' => $this->version($request, $chat),
+            'rename' => $chat->rename((string) $request->input('title')),
+            'pin' => $chat->pinned() ? $chat->unpin() : $chat->pin(),
+            'compress' => $this->compress($chat),
+            default => abort(404),
+        };
+
+        return [];
+    }
+
+    /** Put an earlier answer to the last question back. */
+    protected function version(Request $request, AgentChat $chat): void
+    {
+        if (! $chat->showVersion((string) $request->input('question'), (int) $request->input('version'))) {
+            $this->notify('warning', __('That answer cannot be shown right now.'));
+        }
     }
 
     /** Rate an answer; a thumbs-down may carry a note on what went wrong. */
