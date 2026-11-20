@@ -119,7 +119,8 @@ class RunAgentTurn implements ShouldQueue
             $turn = AgentTurn::query()->find($this->turnId);
 
             if ($turn && $turn->isOpen() && ($turn->status !== AgentTurn::PENDING || $turns->claim($turn))) {
-                $turns->finish($turn, AgentTurn::FAILED, $denied->getMessage());
+                // Written for the person, like a middleware's refusal: the chat shows it as it is.
+                $turns->finish($turn, AgentTurn::FAILED, $denied->getMessage(), metrics: ['finish_reason' => 'refused']);
                 $turns->startNext($turn->conversation_id);
             }
         } finally {
@@ -176,7 +177,7 @@ class RunAgentTurn implements ShouldQueue
         $user = $turns->participant($turn);
 
         if (! $user) {
-            $turns->finish($turn, AgentTurn::FAILED, __('The person who asked could not be found.'));
+            $turns->finish($turn, AgentTurn::FAILED, __('The person who asked could not be found.'), metrics: ['finish_reason' => 'refused']);
 
             return;
         }

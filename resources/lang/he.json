@@ -15,6 +15,7 @@
     "An attachment may be at most :size.": "גודל הקובץ המצורף לא יעלה על :size.",
     "Answers": "תשובות",
     "Approved": "אושר",
+    "Assistant": "עוזר",
     "Attachment": "קובץ מצורף",
     "Attachments are switched off.": "קבצים מצורפים כבויים.",
     "Chat": "צ׳אט",
@@ -86,6 +87,5 @@
     "You used your AI budget for the month.": "ניצלתם את תקציב ה-AI שלכם לחודש.",
     "You used your AI budget for today. It resets at midnight.": "ניצלתם את תקציב ה-AI שלכם להיום. התקציב מתאפס בחצות.",
     "Your question": "השאלה שלכם",
-    "Your role (:role) is not allowed to do this.": "התפקיד שלכם (:role) אינו מורשה לבצע זאת.",
-    "Assistant": "עוזר"
+    "Your role (:role) is not allowed to do this.": "התפקיד שלכם (:role) אינו מורשה לבצע זאת."
 }

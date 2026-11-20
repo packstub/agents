@@ -223,6 +223,7 @@ it('refuses to enter a workspace the person is not a member of, on every path', 
 
     expect($turn->fresh()->status)->toBe(AgentTurn::FAILED)
         ->and($turn->fresh()->error)->toBe('You are not a member of this workspace.')
+        ->and($turn->fresh()->finish_reason)->toBe('refused') // written for the person: the chat shows it
         ->and($entered)->toBe(['acme', 'acme'])
         ->and($ran)->toBe(1)
         ->and(auth()->user())->toBeNull();
@@ -266,6 +267,7 @@ it('records a refused turn as failed without entering as the person, whatever th
 
     expect($first->fresh()->status)->toBe(AgentTurn::FAILED)
         ->and($first->fresh()->error)->toBe('You are not a member of this workspace.')
+        ->and($first->fresh()->finish_reason)->toBe('refused')
         ->and($entries)->toBe([['tenant' => (string) $acme->id, 'user' => $owner->id], ['tenant' => null, 'user' => null]])
         ->and($second->fresh()->status)->toBe(AgentTurn::PENDING)
         ->and(auth()->user())->toBeNull();
@@ -279,6 +281,7 @@ it('records a refused turn as failed without entering as the person, whatever th
 
     expect($second->fresh()->status)->toBe(AgentTurn::FAILED)
         ->and($second->fresh()->error)->toBe('You are not a member of this workspace.')
+        ->and($second->fresh()->finish_reason)->toBe('refused')
         ->and($entries)->toBe([['tenant' => (string) $acme->id, 'user' => $owner->id], ['tenant' => null, 'user' => null]])
         ->and(app(AgentTurns::class)->active($conversation))->toBeNull()
         ->and(auth()->user())->toBeNull();
@@ -528,4 +531,47 @@ it('puts the platform key back for a workspace without its own, so a long-lived 
     $current = $globex;
     AgentModels::resolve();
     expect(config('ai.providers.anthropic.key'))->toBe('sk-test');
+});
+
+it('puts the platform key back on a failover provider too, after a workspace that ran it on its own key', function () {
+    config(['ai.providers.openai.key' => 'sk-platform-openai', 'packstub-agents.failover' => ['openai']]);
+    $owner = $this->user();
+    $acme = $this->team($owner, 'acme');
+    $globex = $this->team($owner, 'globex');
+    actingAs($owner);
+    $current = $acme;
+    Agents::tenantUsing(function () use (&$current) {
+        return $current;
+    });
+    Agents::credentialsUsing(function () use (&$current, $acme) {
+        return $current->is($acme) ? new WorkspaceCredentials('openai', 'sk-acme-openai') : null;
+    });
+
+    // Acme runs OpenAI on its own key.
+    config(['packstub-agents.provider' => 'openai']);
+    AgentModels::resolve();
+    expect(config('ai.providers.openai.key'))->toBe('sk-acme-openai');
+
+    // Globex has no key of its own and runs Anthropic, with OpenAI as its failover: both on the platform keys.
+    config(['packstub-agents.provider' => 'anthropic']);
+    $current = $globex;
+    AgentModels::resolve();
+    expect(config('ai.providers.openai.key'))->toBe('sk-platform-openai')
+        ->and(config('ai.providers.anthropic.key'))->toBe('sk-test');
+});
+
+it('ends a turn whose person was deleted with a line the chat shows', function () {
+    $owner = $this->user();
+    actingAs($owner);
+    Queue::fake();
+    $conversation = app(AgentConversationStore::class)->startConversation($owner, 'Still there?');
+    $turn = app(AgentTurns::class)->enqueue($conversation, $owner, ['prompt' => 'Still there?'], null, 'auto', null);
+    auth()->logout();
+    $owner->delete();
+
+    Queue::pushed(RunAgentTurn::class, fn (RunAgentTurn $job) => $job->turnId === $turn->id)->first()->handle(app(AgentTurns::class));
+
+    expect($turn->fresh()->status)->toBe(AgentTurn::FAILED)
+        ->and($turn->fresh()->error)->toBe('The person who asked could not be found.')
+        ->and($turn->fresh()->finish_reason)->toBe('refused');
 });

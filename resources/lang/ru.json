@@ -15,6 +15,7 @@
     "An attachment may be at most :size.": "Вложение может быть не больше :size.",
     "Answers": "Ответы",
     "Approved": "Одобрено",
+    "Assistant": "Ассистент",
     "Attachment": "Вложение",
     "Attachments are switched off.": "Вложения отключены.",
     "Chat": "Чат",
@@ -86,6 +87,5 @@
     "You used your AI budget for the month.": "Вы исчерпали свой AI-бюджет на месяц.",
     "You used your AI budget for today. It resets at midnight.": "Вы исчерпали свой AI-бюджет на сегодня. Он сбрасывается в полночь.",
     "Your question": "Ваш вопрос",
-    "Your role (:role) is not allowed to do this.": "Вашей роли (:role) это не разрешено.",
-    "Assistant": "Ассистент"
+    "Your role (:role) is not allowed to do this.": "Вашей роли (:role) это не разрешено."
 }

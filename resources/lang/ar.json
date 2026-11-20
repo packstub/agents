@@ -15,6 +15,7 @@
     "An attachment may be at most :size.": "يجب ألا يتجاوز حجم المرفق :size.",
     "Answers": "الإجابات",
     "Approved": "تمت الموافقة",
+    "Assistant": "المساعد",
     "Attachment": "مرفق",
     "Attachments are switched off.": "المرفقات متوقفة.",
     "Chat": "محادثة",
@@ -86,6 +87,5 @@
     "You used your AI budget for the month.": "استنفدت ميزانية الذكاء الاصطناعي لهذا الشهر.",
     "You used your AI budget for today. It resets at midnight.": "استنفدت ميزانية الذكاء الاصطناعي لهذا اليوم. يُعاد الضبط عند منتصف الليل.",
     "Your question": "سؤالك",
-    "Your role (:role) is not allowed to do this.": "دورك (:role) غير مسموح له بذلك.",
-    "Assistant": "المساعد"
+    "Your role (:role) is not allowed to do this.": "دورك (:role) غير مسموح له بذلك."
 }
