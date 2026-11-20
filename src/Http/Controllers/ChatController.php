@@ -230,7 +230,7 @@ class ChatController
             $compressed = $chat->compress();
         } catch (Throwable $e) {
             report($e);
-            $this->notify('danger', __('The chat could not be summarized'), $e->getMessage());
+            $this->notify('danger', __('The chat could not be summarized'));
 
             return;
         }
@@ -253,7 +253,7 @@ class ChatController
             $id = $view->chat->continueInNew();
         } catch (Throwable $e) {
             report($e);
-            $this->notify('danger', __('The chat could not be summarized'), $e->getMessage());
+            $this->notify('danger', __('The chat could not be summarized'));
 
             return [];
         }
@@ -290,7 +290,9 @@ class ChatController
             if ($turn->finish_reason === 'refused') {
                 $this->notify('warning', (string) $turn->error, trim($kept) ?: null);
             } else {
-                $this->notify('danger', __('The assistant could not answer'), $turn->error.$kept, persistent: true);
+                // An exception's own words (`failed`) can name config keys: they stay in the turn log, as in the transcript.
+                $why = $turn->finish_reason === 'failed' ? '' : (string) $turn->error;
+                $this->notify('danger', __('The assistant could not answer'), trim($why.$kept) ?: null, persistent: true);
             }
         }
 

@@ -244,7 +244,8 @@ it('says in a notice why a question could not be answered', function () {
     $failed = postJson('/agents/chat/act/send', ['prompt' => 'Hello'])->assertOk();
 
     expect($failed->json('notices.0'))->toMatchArray(['level' => 'danger', 'title' => 'The assistant could not answer', 'persistent' => true])
-        ->and($failed->json('notices.0.body'))->toContain('Your question is kept')
+        ->and($failed->json('notices.0.body'))->toContain('Your question is kept')->not->toContain('The provider is down') // the operator reads it in the turn log
+        ->and($failed->json('html'))->not->toContain('The provider is down')
         ->and($failed->json('notices'))->toHaveCount(1) // the first request's notice did not stay with the controller
         ->and($failed->json('html'))->toContain('fi-chat-unanswered')->toContain('retry(');
 });
