@@ -1,5 +1,7 @@
 <?php
 
+use Packstub\Agents\Facades\Agents;
+
 $locales = collect(glob(__DIR__.'/../../resources/lang/*.json'))->map(fn ($file) => basename($file, '.json'))->reject('ru')->values()->all();
 
 function langJson(string $locale): array
@@ -32,3 +34,12 @@ it('has every key of ru.json, no more, and the same placeholders, in :dataset', 
             ->toBe(str_contains($key, '|') ? [] : placeholders($ru[$key]), $locale.': '.$key);
     }
 })->with($locales);
+
+it('calls the assistant by the default name in the person\'s language, and keeps a brand name as it is', function () {
+    app()->setLocale('ru');
+    config(['packstub-agents.name' => 'Assistant']);
+    expect(Agents::name())->toBe('Ассистент');
+
+    config(['packstub-agents.name' => 'Ask Acme']);
+    expect(Agents::name())->toBe('Ask Acme');
+});

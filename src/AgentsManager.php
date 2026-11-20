@@ -85,7 +85,8 @@ class AgentsManager
     /** How the assistant is called in the panel ("Ask Acme"). */
     public function name(): string
     {
-        return (string) config('packstub-agents.name', 'Assistant');
+        // The default reads in the person's language; a brand name with no translation stays as it is.
+        return __((string) config('packstub-agents.name', 'Assistant'));
     }
 
     /** Who is acting and where: the context bound in the container (LaravelContext, or FilamentContext once AgentsPlugin registered). */
