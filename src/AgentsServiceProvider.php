@@ -181,8 +181,10 @@ class AgentsServiceProvider extends PackageServiceProvider
         $wanted = (bool) ($ui['page'] ?? false) || filled($ui['route'] ?? null);
 
         if (! $wanted) {
-            foreach (array_keys(Route::getRoutes()->getRoutesByName()) as $name) {
-                if (str_ends_with($name, '.packstub-agents.turn')) {
+            // Each route's own name: the collection's name lookup is refreshed later, and until then it does not know
+            // a name a route was given after it was added, as a panel's are.
+            foreach (Route::getRoutes() as $route) {
+                if (str_ends_with((string) $route->getName(), '.packstub-agents.turn')) {
                     return;
                 }
             }
