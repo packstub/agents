@@ -2,7 +2,7 @@
 
 All notable changes to `packstub/agents` are documented here.
 
-## Unreleased
+## 1.14.0 — 2026-11-21
 
 The chat now ships with this package, for any Laravel app.
 
