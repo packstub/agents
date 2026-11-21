@@ -237,6 +237,19 @@ return [
         // middleware; the person must be the conversation's participant. A panel that shows the chat registers its own.
         'path' => 'agents',
         'middleware' => ['web', 'auth'],
+        // The chat on a page of a plain Laravel app (<x-agents-chat />), without a panel. `page` registers the
+        // package's own pages, GET {path}/chat/{conversation?} and GET {path}/chats, inside `layout` (a view of yours
+        // that yields "content"; null = a bare page). With a page of your own, name its route in `route` (it takes an
+        // optional {conversation} parameter) and, when you have one, the route of your list of chats in `chats_route`.
+        // `alpine`: 'auto' uses the Alpine your page starts (Livewire's or your own) and starts the bundled copy when
+        // there is none; 'bundled' always starts it, 'external' never does.
+        'ui' => [
+            'page' => (bool) env('AGENT_CHAT_PAGE', false),
+            'layout' => null,
+            'route' => null,
+            'chats_route' => null,
+            'alpine' => 'auto',
+        ],
         // Ended turns (the per-turn record: model, tokens, duration, how it ended) are kept this many days for the
         // operator's AI turns page and the daily and monthly budget counters (keep at least 31 days, or the monthly
         // counters shrink); null keeps them forever. Pruned by `model:prune --model=Packstub\\Agents\\Models\\AgentTurn`.

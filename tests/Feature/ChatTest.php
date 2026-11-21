@@ -283,6 +283,7 @@ it('turns a chart result into a Chart.js payload and a table result into the res
         ->and(AgentChat::chartFromResult(['chart' => ['labels' => [], 'datasets' => []]]))->toBeNull()
         ->and(AgentChat::chartFromResult('not json'))->toBeNull()
         ->and(AgentChat::tableFromResult(['table' => ['resource' => 'widgets', 'filters' => ['status' => ['live']], 'title' => 'Live widgets']]))->toBe(['resource' => 'widgets', 'filters' => ['status' => ['live']], 'title' => 'Live widgets'])
+        ->and(AgentChat::tableFromResult(['table' => ['resource' => 'widgets', 'limit' => 2]]))->toBe(['resource' => 'widgets', 'filters' => [], 'title' => '', 'limit' => 2])
         ->and(AgentChat::tableFromResult(['table' => ['resource' => 'orders']]))->toBeNull()
         ->and(AgentChat::tableFromResult('{"rows":[]}'))->toBeNull();
 

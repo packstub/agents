@@ -7,6 +7,7 @@ use Laravel\Ai\AiManager;
 use Laravel\Ai\Enums\Lab;
 use Packstub\Agents\Ai\WorkspaceCredentials;
 use Packstub\Agents\Facades\Agents;
+use Packstub\Agents\Models\AgentLimit;
 
 /**
  * Which provider and model a turn runs on.
@@ -43,6 +44,32 @@ class AgentModels
         }
 
         return filled(self::credentials()?->apiKey) || collect(self::catalog())->contains(fn (array $m) => self::hasPlatformKey($m['provider']));
+    }
+
+    /**
+     * Why the assistant cannot be used here, in words for the person, or null when it can: switched off for them or
+     * for their workspace by an operator, switched off in config, or no provider key yet.
+     */
+    public static function unavailable(): ?string
+    {
+        if (self::enabled()) {
+            return null;
+        }
+
+        $name = ['name' => Agents::name()];
+
+        if (Agents::tenant() && ! AgentLimits::effective()['enabled']) {
+            $own = ($id = auth()->id()) !== null
+                && AgentLimit::query()->where('scope', 'user')->where('scope_id', (string) $id)->where('enabled', false)->exists();
+
+            return $own ? __(':name is switched off for your account.', $name) : __(':name is switched off for this workspace.', $name);
+        }
+
+        if (config('packstub-agents.enabled') !== null) {
+            return __(':name is switched off.', $name);
+        }
+
+        return __(':name is not connected to an AI provider yet.', $name);
     }
 
     /** @return array<string, string> key => label */

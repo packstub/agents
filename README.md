@@ -18,7 +18,7 @@ An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https:
 
 ![A question about pending orders: the search-orders and show-table calls folded above the answer, a proposal to confirm order RO-00016 with Approve and Reject buttons, and the live Orders table filtered to the three pending rows](https://raw.githubusercontent.com/packstub/art/main/filament-agents/docs/chat-table.png)
 
-<sub>The engine's tools, turns and approvals, as Filament Agents shows them in a panel. Without Filament, your own chat surface drives the same calls through `AgentChat`.</sub>
+<sub>The engine's tools, turns and approvals, as Filament Agents shows them in a panel. Without Filament, `<x-agents-chat />` puts the same chat on a Blade page of your own.</sub>
 
 ## Features
 
@@ -27,6 +27,7 @@ An AI agent and an MCP server for your Laravel app, built on [laravel/ai](https:
 - **[Writes are proposals](#writing-tools)**: a write waits for the person's approval, asked as a plain question.
 - **[Every tool call on record](https://packstub.dev/docs/agents/security#the-tool-call-log)**: who ran it, the arguments, the result and the approval decision, chat and MCP alike.
 - **[Turns that survive the request](#running-a-turn)**: queued, recorded and polled, with a sync driver when there is no worker.
+- **[A chat for any Laravel app](https://packstub.dev/docs/agents/chat)**: `<x-agents-chat />` in a Blade view, with streamed answers, approvals and queued questions; no Filament or Livewire needed.
 - **[Knowledge base and web search](https://packstub.dev/docs/agents/tools#knowledge-base)**: answers from your own documents, cited, and from public pages within an allow-list.
 - **[Guard rails you switch on](https://packstub.dev/docs/agents/security#the-prompt-guard)**: a prompt guard against injections, and redaction of secrets in answers.
 - **[A bounded bill](#budgets-and-limits)**: answer and token limits per user and per workspace, checked before the provider is called.
@@ -159,7 +160,7 @@ $conversation = app(AgentConversationStore::class)->startConversation($user, $qu
 $turn = app(AgentTurns::class)->enqueue($conversation, $user, ['prompt' => $question], null, 'auto', null); // model key, page context ("orders/12")
 ```
 
-`AgentChat::for($user)` wraps this for a chat surface of your own (send, decide, retry, stop, the transcript with its proposals, the context meter). `GET agents/chat/{conversation}/turn` returns the answer so far and a status line; run `php artisan queue:work`, or set `AGENT_TURN_DRIVER=sync` to run the job inside the request — a turn no worker takes within `AGENT_WORKER_WAIT` seconds says so on that status line. Long chats replay a token-budgeted window with a rolling summary. Read more: [The agent](https://packstub.dev/docs/agents/assistant#how-a-turn-runs).
+`<x-agents-chat />` is the chat itself on a Blade page of your own (streamed answers, approvals, queued questions, attachments), and `AGENT_CHAT_PAGE=true` turns on ready-made pages; see [The chat](https://packstub.dev/docs/agents/chat). `AgentChat::for($user)` wraps the same logic for a front end of your own (send, decide, retry, stop, the transcript with its proposals, the context meter). `GET agents/chat/{conversation}/turn` returns the answer so far and a status line; run `php artisan queue:work`, or set `AGENT_TURN_DRIVER=sync` to run the job inside the request — a turn no worker takes within `AGENT_WORKER_WAIT` seconds says so on that status line. Long chats replay a token-budgeted window with a rolling summary. Read more: [The agent](https://packstub.dev/docs/agents/assistant#how-a-turn-runs).
 
 ## Filters and charts
 

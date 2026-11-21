@@ -71,7 +71,9 @@ class AgentAttachments
         }
 
         $directory ??= trim((string) config('packstub-agents.chat.attachments.directory', 'agent-attachments'), '/');
-        $name = Str::uuid7().'.'.($file->getClientOriginalExtension() ?: $file->guessExtension() ?: 'bin');
+        // The extension of what the file is, not of what the upload calls itself: a disk that serves its files would
+        // otherwise hand out an accepted type under a name such as "notes.html".
+        $name = Str::uuid7().'.'.($file->guessExtension() ?: 'bin');
         $path = $file->storeAs($directory, $name, ['disk' => self::disk()]);
 
         return self::file((string) $path, $mime)->as($file->getClientOriginalName());

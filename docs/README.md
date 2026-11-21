@@ -16,6 +16,7 @@ In a Filament panel, [Filament Agents](https://packstub.dev/docs/filament-agents
 - **[Your app's authorization](security.md#what-the-package-enforces)**: the agent never does more than the signed-in person could, and a token narrows it further.
 - **[Writes are proposals](tools.md#read-only-versus-write)**: a write waits for the person's approval, asked as a plain question with a preview of the change.
 - **[Turns that survive the request](assistant.md#how-a-turn-runs)**: queued, recorded and polled, with a sync driver when there is no worker.
+- **[A chat for any Laravel app](chat.md)**: `<x-agents-chat />` in a Blade view, with streamed answers, approvals and queued questions; no Filament or Livewire needed.
 - **[Beyond the chat](assistant.md#the-assistant-without-a-chat)**: ask from a command, a job or by email, with events for an audit trail.
 - **[Knowledge base and web search](tools.md#knowledge-base)**: answers from your own documents, cited, and from public pages within an allow-list.
 - **[Guard rails you switch on](security.md#the-prompt-guard)**: a prompt guard against injections, and redaction of secrets in answers.
@@ -28,6 +29,7 @@ In a Filament panel, [Filament Agents](https://packstub.dev/docs/filament-agents
 | Guide | What it covers |
 | --- | --- |
 | [Installation](installation.md) | Requirements, the install command, registering through the `Agents` facade, workspaces, the queue worker (or the sync driver), the routes, the provider key |
+| [The chat](chat.md) | `<x-agents-chat />` on a page of your own or the ready-made pages, the list of chats, styles and colours, changing a part, the routes the page calls |
 | [Tools](tools.md) | Writing an `AgentTool`, abilities, read-only versus write tools, the proposal as a question (`describe()`), the server class, errors, the scaffold command, the knowledge base and web search |
 | [The agent](assistant.md) | The `Agent` class with its persona, domain, rules, context and middleware; how a turn runs, the poll endpoint and its status line, Stop, Retry, long chats, approvals, side agents and classification, models, failover |
 | [Tables and charts](tables-and-charts.md) | `AgentResource`, the `Filter` vocabulary, `AgentResources`, `draw-chart`, page context |

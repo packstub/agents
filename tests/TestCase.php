@@ -70,6 +70,8 @@ abstract class TestCase extends Orchestra
             ],
         ]);
         $app['config']->set('queue.default', 'sync');
+        // The package's own chat pages (off by default), for the chat UI tests.
+        $app['config']->set('packstub-agents.chat.ui.page', true);
     }
 
     protected function defineDatabaseMigrations(): void

@@ -3,3 +3,4 @@
 /.phpunit.cache
 /storage
 composer.lock
+/node_modules

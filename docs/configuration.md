@@ -56,8 +56,13 @@
 | `chat.attachments.max_files` | `5` | | how many files one question may carry |
 | `chat.attachments.mimes` | images, PDF, text, CSV, Markdown, JSON | | the accepted MIME types (`image/*` accepts every image) |
 | `chat.attachments.temporary_urls` | `false` | `AGENT_ATTACHMENTS_TEMPORARY_URLS` | ask the disk for signed URLs when a chat shows a file (S3) |
-| `chat.path` | `agents` | | where the poll, stream and email endpoints live: `GET {path}/chat/{conversation}/turn`, `GET …/stream`, `POST {path}/email`, see [Routes](installation.md#routes) |
-| `chat.middleware` | `['web', 'auth']` | | the middleware of that endpoint; the Filament plugin registers its own on the panel's routes instead |
+| `chat.path` | `agents` | | where the chat's endpoints and the email webhook live: `POST {path}/chat/act/{action}`, `GET {path}/chat/{conversation}/turn`, `GET …/stream`, `POST {path}/email`, see [Routes](installation.md#routes) |
+| `chat.middleware` | `['web', 'auth']` | | the middleware of the chat's endpoints and pages; the Filament plugin registers its own on the panel's routes instead |
+| `chat.ui.page` | `false` | `AGENT_CHAT_PAGE` | register the package's own pages, `GET {path}/chat/{conversation?}` and `GET {path}/chats`; see [Ready-made pages](chat.md#ready-made-pages) |
+| `chat.ui.layout` | `null` | | the view those pages render in (it yields `content`); `null` = a bare page |
+| `chat.ui.route` | `null` | | the name of the route of your own page with `<x-agents-chat />` (it takes an optional `{conversation}`); see [On a page of your own](chat.md#on-a-page-of-your-own) |
+| `chat.ui.chats_route` | `null` | | the name of the route of your own list of chats, linked as "All chats" |
+| `chat.ui.alpine` | `auto` | | `auto` uses the Alpine your page starts and starts the bundled copy when there is none; `bundled` always starts it, `external` never does |
 | `chat.keep_turns_days` | `90` | `AGENT_KEEP_TURNS_DAYS` | how long ended turns (the per-turn record, which the daily and monthly budget counters read: keep it at 31 or more) are kept; `null` keeps them; pruned by `model:prune --model=Packstub\Agents\Models\AgentTurn` |
 | `pricing.currency` | `USD` | `AGENT_PRICING_CURRENCY` | the currency of the prices below |
 | `pricing.models` | `[]` | | prices per million tokens by model name (`in`, `out`, `cache_read`, `cache_write`); see [Cost in money](budgets-and-limits.md#cost-in-money) |
