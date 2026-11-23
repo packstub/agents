@@ -100,7 +100,8 @@ return [
         // The categories that stop a turn. Switch 'off_topic' on to keep the assistant on the workspace.
         'refuse' => ['injection' => true, 'jailbreak' => true, 'data_exfiltration' => true, 'off_topic' => false],
         // When the classifier itself fails (the provider is down): true lets the turn run — the tools' ability
-        // checks and approvals still apply — false refuses it.
+        // checks and approvals still apply — false refuses it (a provider error such as no credits or a rate
+        // limit ends the turn with that error instead).
         'fail_open' => true,
     ],
 

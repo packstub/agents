@@ -2,6 +2,10 @@
 
 All notable changes to `packstub/agents` are documented here.
 
+## Unreleased
+
+- With `prompt_guard.fail_open` off, a provider error during the guard's check (out of credits, rate limited, overloaded, unreachable) now ends the turn with that error instead of "The question could not be checked right now"
+
 ## 1.14.0 — 2026-11-21
 
 The chat now ships with this package, for any Laravel app.
