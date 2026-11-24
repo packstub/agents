@@ -185,9 +185,13 @@ class RunAgentTurn implements ShouldQueue
         // A proposal superseded by a question typed instead of a click (AgentTurns::enqueue()) is declined with the
         // note the model reads for a proposal left undecided, not as a rejection.
         $superseded = (array) ($turn->input['superseded'] ?? []);
+        // An approval with corrected arguments (an approval form) runs the tool with those; laravel/ai writes them to
+        // the stored call, so the model reads back what ran. The tool log keeps what was proposed as well.
+        $edits = $turn->edits();
         $input = $turn->prompt() ?? Decisions::from(collect($turn->decisions() ?? [])->map(
             fn (bool $approve, int|string $callId) => match (true) {
                 in_array((string) $callId, $superseded, true) => Decision::reject(AgentTurns::supersededResult()),
+                $approve && is_array($edits[(string) $callId] ?? null) => Decision::edit($edits[(string) $callId]),
                 $approve => Decision::approve(),
                 default => Decision::reject(AgentTurns::rejectionResult()),
             },
@@ -224,8 +228,9 @@ class RunAgentTurn implements ShouldQueue
                     continue;
                 }
 
-                $log->decided($turn, $callId, $name, $arguments, $approved ? 'approved' : 'rejected');
-                ProposalDecided::dispatch($turn, $callId, $name, $arguments, (bool) $approved);
+                $edited = $approved && is_array($edits[$callId] ?? null) ? $edits[$callId] : null;
+                $log->decided($turn, $callId, $name, $arguments, $approved ? 'approved' : 'rejected', $edited);
+                ProposalDecided::dispatch($turn, $callId, $name, $arguments, (bool) $approved, $edited);
             }
         }
 

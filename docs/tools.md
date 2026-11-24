@@ -104,6 +104,18 @@ public function preview(array $arguments): array
 
 Leave out `before` for something new and `after` for something removed. Each proposal of `AgentChat::messages()` and of `AgentAnswer::$proposals` has the rows as `preview`, and Filament Agents shows them under the question. A preview that throws is reported and left out, so it never stands between the person and the decision; `ApprovableTool::preview($tool, $arguments)` gives the same rows for a surface of your own.
 
+#### Correcting the arguments before approving
+
+When one argument of a proposal is slightly off (a time, a quantity, a typo in a name), the person can fix it and approve, instead of rejecting and asking again. `AgentChat::decide()` takes the corrected arguments:
+
+```php
+AgentChat::for($user, $conversationId)->decide($callId, true, ['starts_at' => '2026-12-01 10:00']);
+```
+
+They replace the proposed arguments key by key, and the tool runs with the result. The stored call is rewritten with what ran, so the transcript and the model's next reply describe the corrected call. The tool log keeps both: `arguments` is what the model proposed, `approved_arguments` what ran (null when nothing changed). `ProposalDecided` carries them as `$arguments` and `$approvedArguments`. Validate the arguments before you call it; the chat's own Approve button never sends any. A call that is not waiting in that chat starts nothing (`null`), and a rejection ignores them.
+
+In a panel, [Filament Agents](https://packstub.dev/docs/filament-agents/assistant#approval-forms) draws a Filament form on the card for a tool that has one. A host of your own can do the same by implementing `Packstub\Agents\Chat\ApprovalForms` beside `ChatHost`: `approvalView($tool)` names the view that replaces the Approve and Reject buttons for that proposal (null keeps them). After deciding on the server, dispatch an `agents-decided` browser event with the turn (`{ turn: { id, conversation, poll, stream, active } }`) and the chat follows it.
+
 #### Decisions in words, and two proposals at once
 
 A turn that arrives as a question while a proposal waits for a decision is read first: a short reply made of nothing but yes ("Yes, go ahead.", "ok", "Sure, confirm it.", and the same in German, Spanish, Romanian, Russian, Hebrew and Arabic; `AgentTurns::decisionInText()`) approves every pending proposal and one that opens with a no ("No, leave them.") rejects them, the reply recorded like any question and the turn run as that decision. Anything else — a yes with a condition ("Yes, but only Alpha."), a question after it ("Ok wait, what does this change?"), a yes asked back ("Ok?"), an "if" ("Si lo apruebo, ¿qué cambia?") — is a question of its own: the pending proposals are declined with `AgentTurns::supersededResult()` as their result, so the history never carries a call without a result (laravel/ai cannot continue over one, and a later decision could no longer be matched), and the new question is answered.

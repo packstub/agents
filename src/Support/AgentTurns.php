@@ -51,6 +51,7 @@ class AgentTurns
                 $held->forceFill(['input' => array_filter([
                     ...$held->input,
                     'decisions' => [...$held->decisions(), ...$input['decisions']],
+                    'edits' => [...$held->edits(), ...($input['edits'] ?? [])] ?: null,
                     'sync' => ($input['sync'] ?? false) ? true : null,
                 ], fn ($v) => $v !== null)])->save();
                 $this->startNext($conversationId);

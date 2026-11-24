@@ -806,8 +806,14 @@ class AgentChat
     /**
      * Approve or reject a pending proposal: the decision turn, held while the other proposals of the same answer
      * wait for theirs (a second decision joins the held turn), refused while an answer runs or a question waits.
+     *
+     * $arguments approve the call with corrected arguments (an approval form, such as Filament Agents' HasApprovalForm):
+     * they replace the proposed ones key by key and the tool runs with the result. Validate them before calling this:
+     * the chat's own endpoint never passes any. Null for a call that is not waiting in this chat.
+     *
+     * @param  array<string, mixed>|null  $arguments
      */
-    public function decide(string $callId, bool $approve): ?AgentTurn
+    public function decide(string $callId, bool $approve, ?array $arguments = null): ?AgentTurn
     {
         $live = $this->live();
 
@@ -815,7 +821,23 @@ class AgentChat
             return null;
         }
 
-        return $this->startTurn(['decisions' => [$callId => $approve]]);
+        $input = ['decisions' => [$callId => $approve]];
+
+        if ($approve && $arguments !== null) {
+            $proposed = app(AgentConversationStore::class)->pendingCalls($this->conversation, $this->participant)[$callId] ?? null;
+
+            if ($proposed === null) {
+                return null;
+            }
+
+            $edited = [...(array) ($proposed['arguments'] ?? []), ...$arguments];
+
+            if ($edited !== (array) ($proposed['arguments'] ?? [])) {
+                $input['edits'] = [$callId => $edited];
+            }
+        }
+
+        return $this->startTurn($input);
     }
 
     /**

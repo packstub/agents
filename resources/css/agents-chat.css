@@ -361,6 +361,10 @@
 .dark .fi-chat-proposal-preview del { color: var(--ac-gray-400); text-decoration-color: rgb(255 255 255 / 0.35); }
 .fi-chat-proposal-preview ins { text-decoration: none; font-weight: 600; color: var(--ac-gray-950); }
 .dark .fi-chat-proposal-preview ins { color: #fff; }
+/* A host's approval form (Chat\ApprovalForms): under the question, lined up with it, the decision buttons inside it. */
+.fi-chat-proposal-form { margin-top: 0.75rem; padding-inline-start: 2rem; }
+.fi-chat-proposal-form .fi-chat-proposal-actions { margin-top: 1rem; }
+@media (max-width: 480px) { .fi-chat-proposal-form { padding-inline-start: 0; } }
 .fi-chat-proposal-details { margin-top: 0.625rem; padding-top: 0.625rem; border-top: 1px solid rgb(0 0 0 / 0.08); font-size: 0.8125rem; }
 .dark .fi-chat-proposal-details { border-color: rgb(255 255 255 / 0.1); }
 .fi-chat-reasoning { border-inline-start: 2px solid rgb(0 0 0 / 0.08); padding-inline-start: 0.625rem; }
