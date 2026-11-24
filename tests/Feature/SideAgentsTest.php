@@ -4,6 +4,8 @@ use Illuminate\JsonSchema\JsonSchemaTypeFactory;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Laravel\Ai\AiManager;
+use Laravel\Ai\Exceptions\InsufficientCreditsException;
+use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Messages\ToolResultMessage;
 use Laravel\Ai\Messages\UserMessage;
@@ -220,6 +222,43 @@ it('lets a safe question through, flags an off-topic one without refusing it unl
 
     config(['packstub-agents.prompt_guard.refuse' => ['jailbreak', 'safe', 'nonsense']]);
     expect(GuardPrompt::refuses())->toBe(['jailbreak']); // "safe" never refuses, an unknown category is dropped
+});
+
+it('lets a provider error from the guard end the turn with that error when failing closed, instead of the "could not be checked" refusal', function () {
+    $user = $this->user();
+    actingAs($user);
+    config(['packstub-agents.prompt_guard.enabled' => true, 'packstub-agents.prompt_guard.fail_open' => false]);
+
+    $answered = false;
+    WidgetAgent::fake(function () use (&$answered) {
+        $answered = true;
+
+        return 'Two widgets are live.';
+    });
+
+    // Out of credits: the turn fails with the provider's own reason, as it would at the assistant's step.
+    GuardAgent::fake(fn () => throw new InsufficientCreditsException('Your credit balance is too low.'));
+    $turn = AgentChat::for($user)->send('How many widgets are live?');
+    expect($turn->status)->toBe(AgentTurn::FAILED)
+        ->and($turn->finish_reason)->toBe('failed')
+        ->and($turn->error)->toBe('Your credit balance is too low.')
+        ->and($answered)->toBeFalse();
+
+    GuardAgent::fake(fn () => throw new RateLimitedException('Rate limit reached.'));
+    expect(AgentChat::for($user)->send('How many widgets are live?')->error)->toBe('Rate limit reached.');
+
+    // Anything else (a bug in the guard, a malformed call) still refuses with the friendly line.
+    GuardAgent::fake(fn () => throw new RuntimeException('The guard broke.'));
+    $turn = AgentChat::for($user)->send('How many widgets are live?');
+    expect($turn->finish_reason)->toBe('refused')
+        ->and($turn->error)->toBe(__('The question could not be checked right now. Try again in a moment.'))
+        ->and($answered)->toBeFalse();
+
+    // Failing open, a provider error from the guard lets the turn run, as before.
+    config(['packstub-agents.prompt_guard.fail_open' => true]);
+    GuardAgent::fake(fn () => throw new InsufficientCreditsException('Your credit balance is too low.'));
+    expect(AgentChat::for($user)->send('How many widgets are live?')->status)->toBe(AgentTurn::DONE)
+        ->and($answered)->toBeTrue();
 });
 
 it('lets the turn run when the guard itself fails, unless told to fail closed, and skips a turn without a question', function () {

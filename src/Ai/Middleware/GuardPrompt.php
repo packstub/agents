@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Laravel\Ai\Ai;
+use Laravel\Ai\Exceptions\FailoverableException;
 use Laravel\Ai\PendingStep;
 use Packstub\Agents\Ai\Agent;
 use Packstub\Agents\Ai\Side\GuardAgent;
@@ -25,7 +26,9 @@ use Throwable;
  * of a turn only, on the question as typed; a turn that resumes a proposal
  * carries no question and passes. When the classifier itself fails the turn
  * runs (`fail_open`), since the tools' own ability checks and approvals are
- * still in place.
+ * still in place; with `fail_open` off it refuses, except when the provider
+ * itself refused the call (no credits, rate limited, overloaded,
+ * unreachable): that error ends the turn as it would at the assistant's step.
  */
 class GuardPrompt
 {
@@ -51,11 +54,19 @@ class GuardPrompt
             $provider = Ai::textProvider(config('packstub-agents.prompt_guard.provider') ?: $step->provider);
             $verdict = GuardAgent::run(Str::limit($question, 4000), $provider, config('packstub-agents.prompt_guard.model') ?: null);
         } catch (Throwable $e) {
-            report($e);
-
             if (! (bool) config('packstub-agents.prompt_guard.fail_open', true)) {
+                // The provider itself refused the call (no credits, rate limited, overloaded, unreachable): the turn
+                // fails as it would have at the assistant's own step, with that reason, and the turn reports it.
+                if ($e instanceof FailoverableException) {
+                    throw $e;
+                }
+
+                report($e);
+
                 throw new TurnRefused(__('The question could not be checked right now. Try again in a moment.'));
             }
+
+            report($e);
 
             return $next($step);
         }

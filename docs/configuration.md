@@ -19,7 +19,7 @@
 | `prompt_guard.enabled` | `false` | `AGENT_PROMPT_GUARD` | classify every question before the assistant reads it and refuse injections, jailbreaks and data exfiltration; see [The prompt guard](security.md#the-prompt-guard) |
 | `prompt_guard.provider`, `prompt_guard.model` | `null` | `AGENT_PROMPT_GUARD_PROVIDER`, `AGENT_PROMPT_GUARD_MODEL` | where the classifier runs; `null` = the turn's provider, its cheapest model |
 | `prompt_guard.refuse` | injection, jailbreak, data_exfiltration | | the categories that stop a turn, as a map (`'off_topic' => true` adds one) |
-| `prompt_guard.fail_open` | `true` | | whether a turn runs when the classifier itself fails |
+| `prompt_guard.fail_open` | `true` | | whether a turn runs when the classifier itself fails; off, it is refused, or ends with the provider's error (no credits, rate limited) |
 | `redact.enabled` | `false` | `AGENT_REDACT` | replace secrets and personal data in answers, while they stream and as stored, and in stored tool results; see [Redaction](security.md#redaction) |
 | `redact.detect` | card, ssn, api_key | | the built-in detectors, as a map (`'ssn' => false` switches one off) |
 | `redact.patterns` | `[]` | | your own, label => regex |
