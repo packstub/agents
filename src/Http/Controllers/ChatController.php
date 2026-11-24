@@ -297,13 +297,7 @@ class ChatController
         }
 
         return [
-            'turn' => [
-                'id' => $turn->id,
-                'conversation' => $chat->conversation(),
-                'poll' => $view->conversationUrl('turn'),
-                'stream' => $view->conversationUrl('stream'),
-                'active' => $turn->isActive(),
-            ],
+            'turn' => $view->turn($turn),
             // The address bar follows a new chat to its own URL; the slide-over's frame keeps its own.
             'url' => $new && ! $view->embedded ? $view->host->chatUrl($chat->conversation()) : null,
         ];

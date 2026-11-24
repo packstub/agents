@@ -4,6 +4,7 @@ namespace Packstub\Agents\Chat;
 
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Packstub\Agents\Models\AgentTurn;
 use Packstub\Agents\Support\AgentAttachments;
 use Packstub\Agents\Support\AgentChat;
 use Packstub\Agents\Support\AgentModels;
@@ -97,6 +98,24 @@ class ChatView
         $conversation = $this->chat->conversation();
 
         return $conversation ? $this->host->endpoint($endpoint, ['conversation' => $conversation]) : null;
+    }
+
+    /**
+     * A turn that was just started, as the page's script follows it (`started()`: where to poll and stream, and
+     * whether it runs). What an action answers with, and what a decision made outside the chat's own requests (an
+     * approval form) sends in its `agents-decided` browser event.
+     *
+     * @return array{id: string, conversation: string|null, poll: string|null, stream: string|null, active: bool}
+     */
+    public function turn(AgentTurn $turn): array
+    {
+        return [
+            'id' => $turn->id,
+            'conversation' => $this->chat->conversation(),
+            'poll' => $this->conversationUrl('turn'),
+            'stream' => $this->conversationUrl('stream'),
+            'active' => $turn->isActive(),
+        ];
     }
 
     /**

@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Event;
 use Laravel\Ai\Models\ConversationMessage;
 use Packstub\Agents\Chat\ApprovalForms;
 use Packstub\Agents\Chat\ChatHost;
+use Packstub\Agents\Chat\ChatView;
 use Packstub\Agents\Chat\Hosts\RouteHost;
 use Packstub\Agents\Events\ProposalDecided;
 use Packstub\Agents\Facades\Agents;
@@ -132,6 +133,40 @@ it('keeps a corrected decision while it waits for the other proposal of the same
         ->and($turn->status)->toBe(AgentTurn::DONE)
         ->and($alpha->fresh()->name)->toBe('Alpha II')
         ->and($beta->fresh()->name)->toBe('Beta II');
+});
+
+it('drops a held correction when the same call is decided again without one', function () {
+    $user = $this->user();
+    actingAs($user);
+    [$alpha, $beta] = $this->widgets();
+    $conversation = renameProposal($user, $alpha, 'Alpah II', $beta);
+
+    WidgetAgent::fake(['Both renamed.']);
+    AgentChat::for($user, $conversation)->decide('c1', true, ['name' => 'Alpha II']);
+    $held = AgentChat::for($user, $conversation)->decide('c1', true);
+
+    expect($held->status)->toBe(AgentTurn::QUEUED)
+        ->and($held->edits())->toBe([]);
+
+    AgentChat::for($user, $conversation)->decide('c2', true, ['name' => 'Beta III']);
+
+    expect($held->refresh()->edits())->toBe(['c2' => ['id' => $beta->id, 'name' => 'Beta III']])
+        ->and($alpha->fresh()->name)->toBe('Alpah II')
+        ->and($beta->fresh()->name)->toBe('Beta III');
+});
+
+it('gives the turn a host\'s own decision reports to the page', function () {
+    $user = $this->user();
+    actingAs($user);
+    [$alpha] = $this->widgets();
+    $conversation = renameProposal($user, $alpha);
+
+    WidgetAgent::fake(['Renamed.']);
+    $view = ChatView::make($conversation);
+    $turn = $view->chat->decide('c1', true, ['name' => 'Alpha III']);
+
+    expect($view->turn($turn))->toMatchArray(['id' => $turn->id, 'conversation' => $conversation, 'active' => false])
+        ->and($view->turn($turn)['poll'])->toContain($conversation);
 });
 
 it('never takes arguments from the chat\'s decide endpoint', function () {
