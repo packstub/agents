@@ -87,10 +87,11 @@ class AgentToolLog
      * The person decided a proposal: approved (it runs next), rejected, or superseded by a question typed instead.
      *
      * @param  array<string, mixed>  $arguments  the call as it was proposed
+     * @param  array<string, mixed>|null  $approvedArguments  what it runs with, when the person corrected the arguments before approving
      */
-    public function decided(AgentTurn $turn, string $callId, string $tool, array $arguments, string $decision): void
+    public function decided(AgentTurn $turn, string $callId, string $tool, array $arguments, string $decision, ?array $approvedArguments = null): void
     {
-        $this->write(function () use ($turn, $callId, $tool, $arguments, $decision) {
+        $this->write(function () use ($turn, $callId, $tool, $arguments, $decision, $approvedArguments) {
             $row = $this->open($turn->conversation_id, $callId) ?? $this->create($callId, $tool, $arguments, AgentToolCall::PROPOSED, $turn);
 
             $approved = $decision === 'approved';
@@ -101,6 +102,7 @@ class AgentToolLog
                 'decided_by' => $turn->decidedBy(),
                 'decided_at' => now(),
                 'finished_at' => $approved ? null : now(),
+                ...($approved && $approvedArguments !== null ? ['approved_arguments' => $this->capped(app(AgentRedactor::class)->redactResult($approvedArguments))] : []),
             ]);
         });
     }

@@ -51,6 +51,7 @@ class AgentToolCall extends Model
 
     protected $casts = [
         'arguments' => 'array',
+        'approved_arguments' => 'array',
         'result' => 'array',
         'decided_at' => 'datetime',
         'started_at' => 'datetime',

@@ -143,6 +143,15 @@ export default function agentChat() {
             this.$watch('live.html', (html) => self.stream(html))
             document.addEventListener('visibilitychange', () => { if (! document.hidden) this.schedule(0) }, { signal })
             window.addEventListener('pagehide', () => this.closeStream(), { signal })
+            // A decision made outside the chat's own requests (a host's approval form, which validates the corrected
+            // arguments on its own round trip): listen to the turn it started and draw the chat as it is now.
+            window.addEventListener('agents-decided', (event) => {
+                const detail = event.detail ?? {}
+                if (self.conversation && detail.turn?.conversation && detail.turn.conversation !== self.conversation) return
+                // No turn: the decision did not go through (the chat moved on); draw it as it stands.
+                if (detail.turn) self.started(detail)
+                self.refresh()
+            }, { signal })
 
             this.pinComposer()
             this.paintFade()

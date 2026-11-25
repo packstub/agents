@@ -81,6 +81,17 @@ class AgentTurn extends Model
     }
 
     /**
+     * The corrected arguments of approved proposals (call id => arguments), for a decision made with an approval
+     * form (AgentChat::decide() with arguments); a call not listed runs as it was proposed.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public function edits(): array
+    {
+        return (array) ($this->input['edits'] ?? []);
+    }
+
+    /**
      * What read a typed reply as this turn's decisions: `app` (Agents::decideTypedUsing()), `words` (the lists) or
      * `classifier` (config `decision_classifier`); null for a question, or decisions made with the buttons.
      */

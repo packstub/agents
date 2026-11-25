@@ -50,7 +50,10 @@ class AgentTurns
                 // or a command runs here, one from a chat goes to a worker whatever the first decision asked.
                 $held->forceFill(['input' => array_filter([
                     ...$held->input,
-                    'decisions' => [...$held->decisions(), ...$input['decisions']],
+                    'decisions' => array_replace($held->decisions(), $input['decisions']),
+                    // A call decided again takes the new decision whole: corrections made the first time do not
+                    // ride along with an approval made without any.
+                    'edits' => array_replace(array_diff_key($held->edits(), $input['decisions']), $input['edits'] ?? []) ?: null,
                     'sync' => ($input['sync'] ?? false) ? true : null,
                 ], fn ($v) => $v !== null)])->save();
                 $this->startNext($conversationId);

@@ -6,6 +6,8 @@
         {{-- A proposed change: one question with a decision while it waits (the most prominent thing on the page),
              the outcome in the same place once decided. The exact call folds under the question. --}}
         @php($state = $tool['pending'] ? 'pending' : ($tool['rejected'] ? 'rejected' : 'approved'))
+        {{-- A host may draw the decision itself (an approval form that corrects the arguments first: Chat\ApprovalForms). --}}
+        @php($approvalView = $tool['pending'] && $tool['held'] === null && $host instanceof \Packstub\Agents\Chat\ApprovalForms ? $host->approvalView($tool) : null)
         <div class="fi-chat-proposal fi-chat-proposal-{{ $state }}" x-data="{ open: false }" data-key="proposal-{{ $message['id'] }}-{{ $tool['id'] }}" data-state="{{ $state }}" role="group" aria-label="{{ $tool['question'] }}">
             <div class="fi-chat-proposal-row">
                 <x-dynamic-component :component="$ui.'::icon'" :icon="$tool['pending'] ? 'heroicon-m-question-mark-circle' : ($tool['rejected'] ? 'heroicon-m-x-circle' : 'heroicon-m-check-circle')" class="fi-chat-proposal-icon" />
@@ -40,6 +42,8 @@
                     @if ($tool['pending'] && $tool['held'] !== null)
                         {{-- Decided; it runs together with the other proposal of this answer once that one is decided too. --}}
                         <span class="fi-chat-proposal-outcome">{{ $tool['held'] ? __('Approved, once the other proposal is decided') : __('Rejected, once the other proposal is decided') }}</span>
+                    @elseif ($tool['pending'] && $approvalView !== null)
+                        <span class="fi-chat-proposal-outcome" x-show="busy" x-cloak>{{ __('Deciding…') }}</span>
                     @elseif ($tool['pending'])
                         <div class="fi-chat-proposal-actions" x-show="! busy">
                             {{-- Bound attributes: a Blade directive inside a component tag's attribute is not compiled. --}}
@@ -52,6 +56,11 @@
                     @endif
                 </div>
             </div>
+            @if ($approvalView !== null)
+                <div class="fi-chat-proposal-form" x-show="! busy" data-agents-approval="{{ $tool['id'] }}">
+                    @include($approvalView, ['tool' => $tool, 'message' => $message])
+                </div>
+            @endif
             @if ($tool['pending'] && ($live['ended']['decision'] ?? false) && ($live['ended']['status'] ?? null) === \Packstub\Agents\Models\AgentTurn::FAILED)
                 {{-- The decision turn failed (the worker died, the provider or the history rejected it): say so here, where the buttons came back.
                      An exception's own words (`failed`) stay in the turn log, as under a question. --}}

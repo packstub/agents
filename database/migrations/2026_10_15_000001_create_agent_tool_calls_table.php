@@ -30,6 +30,7 @@ return new class extends Migration
             $table->string('tool');
             $table->string('ability')->nullable(); // the ability the tool needs; null = any member
             $table->json('arguments')->nullable();
+            $table->json('approved_arguments')->nullable(); // what ran, when the person corrected the arguments before approving
             $table->string('status', 16); // called | proposed | approved | running | succeeded | failed | refused | rejected
             $table->text('question')->nullable(); // the proposal as the person saw it ("Rename widget #7 to Alpha II?")
             $table->string('decision', 16)->nullable(); // approved | rejected | superseded
