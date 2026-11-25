@@ -2,7 +2,9 @@
 
 All notable changes to `packstub/agents` are documented here.
 
-## Unreleased
+## 1.15.0 — 2026-11-25
+
+Correct a proposed change before approving it.
 
 - With `prompt_guard.fail_open` off, a provider error during the guard's check (out of credits, rate limited, overloaded, unreachable) now ends the turn with that error instead of "The question could not be checked right now"
 - A proposed change can be approved with corrected arguments: `AgentChat::decide($call, true, $arguments)` runs the tool with them, and the tool log keeps what was proposed beside what ran (#108 in filament-agents)
